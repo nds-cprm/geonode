@@ -38,14 +38,6 @@ def catalogue_pre_delete(instance, sender, **kwargs):
     catalogue.remove_record(instance.uuid)
 
 
-def catalogue_pre_save(instance, sender, **kwargs):
-    """Fill metadata default standards before save"""
-    catalogue = get_catalogue()
-
-    instance.csw_typename = catalogue.default_root_node
-    instance.csw_schema = catalogue.default_schema
-
-
 def catalogue_post_save(instance, sender, **kwargs):
     """Get information from catalogue"""
     _id = instance.resourcebase_ptr.id if hasattr(instance, "resourcebase_ptr") else instance.id
@@ -102,13 +94,17 @@ def catalogue_post_save(instance, sender, **kwargs):
         LOGGER.exception(e)
         csw_anytext = ""
 
-    resources.update(metadata_xml=md_doc, csw_wkt_geometry=instance.geographic_bounding_box, csw_anytext=csw_anytext)
+    resources.update(
+        csw_typename=catalogue.default_root_node, 
+        csw_schema=catalogue.default_schema,
+        metadata_xml=md_doc, 
+        csw_wkt_geometry=instance.geographic_bounding_box, 
+        csw_anytext=csw_anytext
+    )
 
 
 if "geonode.catalogue" in settings.INSTALLED_APPS:
-    signals.post_save.connect(catalogue_pre_save, sender=Dataset)
     signals.post_save.connect(catalogue_post_save, sender=Dataset)
     signals.pre_delete.connect(catalogue_pre_delete, sender=Dataset)
-    signals.post_save.connect(catalogue_pre_save, sender=Document)
     signals.post_save.connect(catalogue_post_save, sender=Document)
     signals.pre_delete.connect(catalogue_pre_delete, sender=Document)
