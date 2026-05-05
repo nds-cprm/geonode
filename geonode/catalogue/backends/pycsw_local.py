@@ -74,12 +74,8 @@ CONFIGURATION = {
 class CatalogueBackend(GenericCatalogueBackend):
     def __init__(self, *args, **kwargs):
         GenericCatalogueBackend.__init__(CatalogueBackend, self, *args, **kwargs)
-        self.catalogue.formats = ["Atom", "DIF", "Dublin Core", "ebRIM", "FGDC", "ISO", "ISO19115-3_2018"]
+        self.catalogue.formats = list(METADATA_FORMATS.keys())
         self.catalogue.local = True
-
-    @property
-    def default_schema(self):
-        return
 
     def remove_record(self, uuid):
         pass
