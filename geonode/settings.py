@@ -1205,6 +1205,11 @@ CATALOGUE = {
     }
 }
 
+# Metadata format
+CATALOGUE_DEFAULT_FORMAT=os.getenv("CATALOGUE_DEFAULT_FORMAT", "ISO")
+
+assert CATALOGUE_DEFAULT_FORMAT in ("ISO", "ISO19115-3_2018"), f"Metadata profile invalid: {CATALOGUE_DEFAULT_FORMAT}"
+
 # pycsw settings
 PYCSW = {
     # pycsw configuration
@@ -1224,8 +1229,8 @@ PYCSW = {
             "pretty_print": "true",
             # 'domainquerytype': 'range',
             "domaincounts": "true",
-            "profiles": "apiso,ebrim",
         },
+        "profiles": {"apiso", "ebrim", "iso19115p3"},
         "manager": {
             # authentication/authorization is handled by Django
             "transactions": "false",
