@@ -1210,6 +1210,14 @@ CATALOGUE_DEFAULT_FORMAT=os.getenv("CATALOGUE_DEFAULT_FORMAT", "ISO")
 
 assert CATALOGUE_DEFAULT_FORMAT in ("ISO", "ISO19115-3_2018"), f"Metadata profile invalid: {CATALOGUE_DEFAULT_FORMAT}"
 
+match CATALOGUE_DEFAULT_FORMAT:
+    case "ISO":
+        metadata_template = "catalogue/full_metadata.xml"
+    case "ISO19115-3_2018":
+        metadata_template = "catalogue/full_metadata_iso19115-3.xml"
+
+CATALOG_METADATA_TEMPLATE = os.getenv("CATALOG_METADATA_TEMPLATE", metadata_template)
+
 # pycsw settings
 PYCSW = {
     # pycsw configuration
@@ -2059,8 +2067,6 @@ MODIFY_TOPICCATEGORY = ast.literal_eval(os.getenv("MODIFY_TOPICCATEGORY", "True"
 # If this option is enabled, Topic Categories will become strictly Mandatory on
 # Metadata Wizard
 TOPICCATEGORY_MANDATORY = ast.literal_eval(os.environ.get("TOPICCATEGORY_MANDATORY", "False"))
-
-CATALOG_METADATA_TEMPLATE = os.getenv("CATALOG_METADATA_TEMPLATE", "catalogue/full_metadata.xml")
 
 DEFAULT_AUTO_FIELD = "django.db.models.AutoField"
 
