@@ -1206,7 +1206,7 @@ CATALOGUE = {
 }
 
 # Metadata format
-CATALOGUE_DEFAULT_FORMAT=os.getenv("CATALOGUE_DEFAULT_FORMAT", "ISO")
+CATALOGUE_DEFAULT_FORMAT = os.getenv("CATALOGUE_DEFAULT_FORMAT", "ISO")
 
 METADATA_TEMPLATES = {
     "ISO": "catalogue/full_metadata.xml",
