@@ -382,19 +382,19 @@
                                               codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#MD_SpatialRepresentationTypeCode"/>
       </mri:spatialRepresentationType>
       {% endif %}
-      {% comment %}
+      {% if metadata.scale %}
       <mri:spatialResolution>
         <mri:MD_Resolution>
-            <mri:equivalentScale>
-              <mri:MD_RepresentativeFraction>
-                  <mri:denominator>
-                    <gco:Integer/>
-                  </mri:denominator>
-              </mri:MD_RepresentativeFraction>
-            </mri:equivalentScale>
+          <mri:equivalentScale>
+            <mri:MD_RepresentativeFraction>
+              <mri:denominator>
+                <gco:Integer>{{ metadata.scale }}</gco:Integer>
+              </mri:denominator>
+            </mri:MD_RepresentativeFraction>
+          </mri:equivalentScale>
         </mri:MD_Resolution>
       </mri:spatialResolution>
-      {% endcomment %}
+      {% endif %}
       {% if layer.category %}
       <mri:topicCategory>
         <mri:MD_TopicCategoryCode>{{ layer.category.identifier }}</mri:MD_TopicCategoryCode>
