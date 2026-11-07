@@ -382,13 +382,13 @@
                                               codeList="http://standards.iso.org/iso/19115/resources/Codelists/cat/codelists.xml#MD_SpatialRepresentationTypeCode"/>
       </mri:spatialRepresentationType>
       {% endif %}
-      {% if metadata.scale %}
+      {% if metadata.scale.id %}
       <mri:spatialResolution>
         <mri:MD_Resolution>
           <mri:equivalentScale>
             <mri:MD_RepresentativeFraction>
               <mri:denominator>
-                <gco:Integer>{{ metadata.scale }}</gco:Integer>
+                <gco:Integer>{{ metadata.scale.id }}</gco:Integer>
               </mri:denominator>
             </mri:MD_RepresentativeFraction>
           </mri:equivalentScale>

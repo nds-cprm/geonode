@@ -369,13 +369,13 @@
          <gmd:MD_SpatialRepresentationTypeCode codeSpace="ISOTC211/19115" codeList="http://www.isotc211.org/2005/resources/Codelist/gmxCodelists.xml#MD_SpatialRepresentationTypeCode" codeListValue="{{layer.spatial_representation_type.identifier}}">{{layer.spatial_representation_type.identifier}}</gmd:MD_SpatialRepresentationTypeCode>
        </gmd:spatialRepresentationType>
        {% endif %}
-       {% if metadata.scale %}
+       {% if metadata.scale.id %}
        <gmd:spatialResolution>
          <gmd:MD_Resolution>
            <gmd:equivalentScale>
              <gmd:MD_RepresentativeFraction>
                <gmd:denominator>
-                 <gco:Integer>{{ metadata.scale }}</gco:Integer>
+                 <gco:Integer>{{ metadata.scale.id }}</gco:Integer>
                </gmd:denominator>
              </gmd:MD_RepresentativeFraction>
            </gmd:equivalentScale>
