@@ -1,0 +1,300 @@
+#!/usr/bin/env bash
+# Runs the GeoNode test suite, group by group, exactly as the GeoNode CI does, against a GeoNode image
+# built from this repository on top of a chosen base image. Meant to validate base images (for example
+# the ones built from docker/base/ubuntu/multi-stage) without any downstream project involved.
+#
+# What it does, following the CI of the tested ref (.github/workflows/tests.yml and run-test-suite.yml):
+#   1. exports the GeoNode source of a git ref (default: HEAD) with "git archive";
+#   2. builds the GeoNode image from the root Dockerfile of that source, with its first FROM replaced by
+#      the base image under test;
+#   3. reads, from the tests.yml of that source, the groups (jobs that call run-test-suite.yml) and their
+#      test_command, and, from run-test-suite.yml, how the stack is started (compose file, env file and
+#      "up" arguments);
+#   4. for each group, like a CI job: starts a fresh stack (own compose project, no published ports),
+#      creates the test databases, runs the test_command inside the django container, saves the log and
+#      removes the stack with its volumes.
+#
+# Differences from the CI, all on purpose:
+#   - "--failfast" is removed from the test commands, so every group runs to the end (use -f to keep it);
+#   - published ports are dropped, so the test stack does not clash with other stacks on the host;
+#   - the codecov upload is not run.
+# The other services (db, geoserver, nginx...) use the images of the compose file of the tested ref, as in
+# the CI. Images that only exist for amd64 run emulated on arm64 hosts; --service-image replaces one.
+#
+# Usage:
+#   ./geonode-tests [options] [group...]          (no group: all groups of tests.yml, in file order)
+#
+# Options:
+#   -b, --base IMAGE           base image under test (default: docker.io/ndscprm/geonode-base:ubuntu26.04-pg18)
+#   -r, --ref REF              git ref of the GeoNode source to build and test (default: HEAD). It must
+#                              match the base: GeoNode pins GDAL to the libgdal of the base image
+#       --platform PLATFORM    platform of the GeoNode image (default: the engine host's, e.g. linux/arm64)
+#       --service-image S=IMG  use IMG for compose service S (e.g. db=docker.io/ndscprm/postgis:17-3.4-geonode);
+#                              can be repeated
+#       --no-build             reuse the GeoNode image built by a previous run (same ref and base)
+#   -f, --failfast             keep the "--failfast" of the CI test commands
+#   -k, --keep                 keep the stack of the last group (inspect it, then use --down)
+#       --down                 remove a kept stack (with its volumes) and exit
+#   -l, --list                 build/read the ref and list its groups, then exit
+#   -h, --help                 show this help
+#
+# Environment:
+#   (bash 4.3 or newer; on macOS, the Homebrew bash)
+#   CONTAINER_ENGINE=docker|podman   force the engine (default: Docker if its daemon answers, else Podman)
+#   BOOT_TIMEOUT=<seconds>           max wait for django/geoserver to become healthy (default: 3600)
+#   MAX_FAILED_LIST=<n>              failed tests listed per group in the summary (default: 30)
+#   GEONODE_TESTS_DIR=<dir>          work directory (default: ~/.cache/geonode-base-tests)
+#
+# Output: <work dir>/logs/<date-time>/ with build.log, plan.json, <group>.log, <group>.up.log and
+# summary.txt (also printed). Exit status 0 only if every group passes.
+
+set -euo pipefail
+
+base_image="docker.io/ndscprm/geonode-base:ubuntu26.04-pg18"
+ref="HEAD"; platform=""; build=true; failfast=false; keep=false; down_only=false; list_only=false
+declare -a groups=() service_images=()
+
+usage() { sed -n '2,/^set -euo/p' "$0" | sed -e '/^set -euo/d' -e 's/^# \{0,1\}//'; exit "${1:-0}"; }
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -b|--base)       base_image="$2"; shift ;;
+        -r|--ref)        ref="$2"; shift ;;
+        --platform)      platform="$2"; shift ;;
+        --service-image) service_images+=("$2"); shift ;;
+        --no-build)      build=false ;;
+        -f|--failfast)   failfast=true ;;
+        -k|--keep)       keep=true ;;
+        --down)          down_only=true ;;
+        -l|--list)       list_only=true ;;
+        -h|--help)       usage 0 ;;
+        -*)              echo "Unknown option: $1" >&2; usage 1 ;;
+        *)               groups+=("$1") ;;
+    esac
+    shift
+done
+
+repo="$(git -C "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" rev-parse --show-toplevel)"
+work="${GEONODE_TESTS_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/geonode-base-tests}"
+mkdir -p "$work"
+project="geonodebasetest"
+state="$work/$project"
+
+# --- Engine -------------------------------------------------------------------------------------------
+engine_ok() {
+    case "$1" in
+        docker) command -v docker >/dev/null 2>&1 && docker version --format '{{.Server.Version}}' >/dev/null 2>&1 ;;
+        podman) command -v podman >/dev/null 2>&1 && podman info --format '{{.Host.Arch}}' >/dev/null 2>&1 ;;
+        *) return 1 ;;
+    esac
+}
+engine="${CONTAINER_ENGINE:-}"
+if [ -n "$engine" ]; then engine_ok "$engine" || { echo "CONTAINER_ENGINE='$engine' not available" >&2; exit 1; }
+elif engine_ok docker; then engine=docker
+elif engine_ok podman; then engine=podman
+else echo "No container engine available (Docker or Podman)" >&2; exit 1
+fi
+case "$engine" in
+    docker) if docker compose version >/dev/null 2>&1; then compose=(docker compose); else compose=(docker-compose); fi
+            host_arch="$(docker version --format '{{.Server.Arch}}')" ;;
+    podman) export PODMAN_COMPOSE_WARNING_LOGS=false; compose=(podman compose)
+            host_arch="$(podman info --format '{{.Host.Arch}}')" ;;
+esac
+platform="${platform:-linux/$host_arch}"
+
+# compose with the files of the ref (relative to its source), our env file and our override
+dc() {
+    local f args=()
+    for f in "${compose_files[@]}"; do args+=(-f "$f"); done
+    (cd "$state/src" && "${compose[@]}" -p "$project" --env-file "$state/env" "${args[@]}" -f "$state/override.yml" "$@")
+}
+
+if $down_only; then
+    if [ -f "$state/plan.json" ]; then
+        mapfile -t compose_files < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["compose_files"]))' "$state/plan.json")
+        COMPOSE_ENV_FILES="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["env_file"])' "$state/plan.json")"
+        export COMPOSE_ENV_FILES
+        dc down -v --remove-orphans || true
+    fi
+    rm -rf "$state"; echo "Test stack removed" >&2; exit 0
+fi
+
+# --- Source of the ref --------------------------------------------------------------------------------
+rev="$(git -C "$repo" rev-parse --short "$ref^{commit}")"
+slug() { echo "$1" | tr -c 'A-Za-z0-9._-' '-' | sed -e 's/-*$//' -e 's/^-*//' | cut -c1-60; }
+image="docker.io/geonode-base-tests/geonode:$(slug "$ref")-$rev-$(slug "${base_image##*/}")"
+log_dir="$work/logs/$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$log_dir"
+rm -rf "$state"; mkdir -p "$state/src"
+git -C "$repo" archive "$ref" | tar -x -C "$state/src"
+echo ">> GeoNode $ref ($rev) on $base_image | platform $platform | engine $engine" >&2
+echo ">> Logs in $log_dir" >&2
+
+# --- GeoNode image ------------------------------------------------------------------------------------
+if $build || ! "$engine" image inspect "$image" >/dev/null 2>&1; then
+    echo ">> Building $image (log: $log_dir/build.log)" >&2
+    # Root Dockerfile of the ref, with its first FROM pointing to the base under test
+    awk -v base="$base_image" '!done && /^FROM[ \t]/ { print "FROM " base; done = 1; next } { print }' \
+        "$state/src/Dockerfile" > "$state/src/Dockerfile.base-tests"
+    "$engine" build --platform "$platform" -f "$state/src/Dockerfile.base-tests" -t "$image" "$state/src" > "$log_dir/build.log" 2>&1 \
+        || { echo "Build failed; end of $log_dir/build.log:" >&2; tail -n 30 "$log_dir/build.log" >&2; exit 1; }
+fi
+"$engine" run --rm --platform "$platform" --entrypoint bash "$image" -c \
+    'python -c "import geonode, osgeo.gdal as g, django; print(\"GeoNode\", geonode.get_version(), \"| GDAL\", g.__version__, \"| Django\", django.__version__)"; pip check >/dev/null && echo "pip check: clean" || pip check' \
+    | tee "$log_dir/image.txt" >&2
+
+# --- Plan: groups and stack, read from the CI of the ref (PyYAML from the GeoNode image) ---------------
+"$engine" run --rm --platform "$platform" -v "$state/src/.github:/ci:ro" --entrypoint python "$image" -c '
+import json, re, shlex, yaml
+tests = yaml.safe_load(open("/ci/workflows/tests.yml"))
+suite = yaml.safe_load(open("/ci/workflows/run-test-suite.yml"))
+groups = [(name, " ".join(job["with"]["test_command"].split()))
+          for name, job in tests["jobs"].items()
+          if str(job.get("uses", "")).endswith("run-test-suite.yml")]
+start = next(s["run"] for s in suite["jobs"]["run_suite"]["steps"] if s.get("name") == "Start the stack")
+words = shlex.split(start)
+env_file, files, up = ".env", [], []
+for i, w in enumerate(words):
+    if w.startswith("COMPOSE_ENV_FILES="): env_file = w.split("=", 1)[1]
+    elif w == "--env-file": env_file = words[i + 1]
+    elif w == "-f": files.append(words[i + 1])
+    elif w == "up": up = words[i + 1:]; break
+print(json.dumps({"groups": groups, "env_file": env_file, "compose_files": files or ["docker-compose.yml"],
+                  "up_args": up, "start_step": start}, indent=1))
+' > "$log_dir/plan.json"
+cp "$log_dir/plan.json" "$state/plan.json"
+plan() { python3 -c "import json,sys; d=json.load(open(sys.argv[1])); $1" "$log_dir/plan.json"; }
+mapfile -t all_groups < <(plan 'print("\n".join(g for g, _ in d["groups"]))')
+mapfile -t compose_files < <(plan 'print("\n".join(d["compose_files"]))')
+mapfile -t up_args < <(plan 'print("\n".join(d["up_args"]))')
+env_file="$(plan 'print(d["env_file"])')"
+# Newer CIs set COMPOSE_ENV_FILES (the compose file uses env_file: ${COMPOSE_ENV_FILES:-.env}); older
+# ones pass --env-file and name .env_test in the compose file, where this variable changes nothing
+export COMPOSE_ENV_FILES="$env_file"
+
+if $list_only; then printf '%s\n' "${all_groups[@]}"; exit 0; fi
+[ ${#groups[@]} -gt 0 ] || groups=("${all_groups[@]}")
+for g in "${groups[@]}"; do
+    [[ " ${all_groups[*]} " == *" $g "* ]] || { echo "Unknown group: '$g' (groups: ${all_groups[*]})" >&2; exit 1; }
+done
+
+# Env file for compose interpolation: the CI one, with our project name (containers and volumes)
+sed -E "s/^COMPOSE_PROJECT_NAME=.*/COMPOSE_PROJECT_NAME=$project/" "$state/src/$env_file" > "$state/env"
+grep -q '^COMPOSE_PROJECT_NAME=' "$state/env" || echo "COMPOSE_PROJECT_NAME=$project" >> "$state/env"
+
+# --- Override: GeoNode image under test, platforms, no published ports ----------------------------------
+cfg_args=(); for f in "${compose_files[@]}"; do cfg_args+=(-f "$state/src/$f"); done
+"${compose[@]}" -p "$project" --env-file "$state/env" "${cfg_args[@]}" config --format json > "$state/config.json"
+declare -A svc_image=()
+for si in ${service_images[@]+"${service_images[@]}"}; do svc_image["${si%%=*}"]="${si#*=}"; done
+mapfile -t svc_lines < <(python3 - "$state/config.json" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1]))["services"]
+django_image = cfg.get("django", {}).get("image")
+for name, s in cfg.items():
+    geonode = name == "django" or "build" in s or (django_image and s.get("image") == django_image)
+    print(name, "geonode" if geonode else "other", s.get("image", "-"), "ports" if s.get("ports") else "-")
+PY
+)
+{
+    echo "# Generated by geonode-tests"
+    echo "services:"
+    for line in "${svc_lines[@]}"; do
+        read -r name kind img ports <<< "$line"
+        echo "  $name:"
+        if [ "$kind" = geonode ]; then
+            echo "    image: $image"
+            echo "    platform: $platform"
+        else
+            img="${svc_image[$name]:-$img}"
+            # Native image when it exists for the host, otherwise amd64 (emulated on arm64). Podman's pull
+            # "succeeds" with the amd64 image when the native one does not exist, so the platform comes
+            # from the pulled image, not from the exit status
+            "$engine" pull -q --platform "$platform" "$img" >/dev/null 2>&1 || "$engine" pull -q --platform linux/amd64 "$img" >/dev/null
+            p="$("$engine" image inspect -f '{{.Os}}/{{.Architecture}}' "$img")"
+            echo "    image: $img"
+            echo "    platform: $p"
+            echo ">> Service $name: $img ($p)" >&2
+        fi
+        [ "$ports" = ports ] && echo "    ports: !reset []"
+    done
+} > "$state/override.yml"
+cp "$state/override.yml" "$log_dir/override.yml"
+
+# --- Runs ---------------------------------------------------------------------------------------------
+boot_timeout="${BOOT_TIMEOUT:-3600}"
+wait_healthy() {
+    local cid="${1}4${project}" status waited=0   # container_name: <service>4${COMPOSE_PROJECT_NAME}
+    while :; do
+        status="$("$engine" inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' "$cid" 2>/dev/null || echo missing)"
+        case "$status" in
+            "running healthy") return 0 ;;
+            exited*|dead*|missing) echo "$1 stopped ($status)" >&2; return 1 ;;
+        esac
+        [ "$waited" -lt "$boot_timeout" ] || { echo "Timeout waiting for $1 ($status)" >&2; return 1; }
+        # Podman: the periodic healthcheck timer sometimes stops firing; run it by hand
+        if [ "$engine" = podman ] && [ "$waited" -gt 0 ] && [ $((waited % 30)) -eq 0 ]; then
+            podman healthcheck run "$cid" >/dev/null 2>&1 || true
+        fi
+        sleep 10; waited=$((waited + 10))
+    done
+}
+
+stack_down() { dc down -v --remove-orphans >/dev/null 2>&1 || true; }
+trap 'echo ">> Interrupted" >&2; stack_down; exit 130' INT TERM
+
+summary=(); overall=0; max_failed="${MAX_FAILED_LIST:-30}"
+for g in "${groups[@]}"; do
+    cmd="$(plan "print(dict(d['groups'])['$g'])")"
+    $failfast || cmd="$(echo "$cmd" | sed -E 's/[[:space:]]--failfast//g')"
+    start=$(date +%s)
+    echo ">> [$g] $(date +%H:%M:%S) starting the stack" >&2
+    stack_down
+    rc=0
+    # "up" arguments of the CI start step; -d added only if they do not already detach
+    up=("${up_args[@]}"); [[ " ${up[*]} " == *" -d "* || " ${up[*]} " == *" --detach "* ]] || up=(-d "${up[@]}")
+    if ! dc up "${up[@]}" > "$log_dir/$g.up.log" 2>&1 || ! wait_healthy django || ! wait_healthy geoserver; then
+        echo "ERROR: stack did not start; see $g.up.log and $g.services.log" > "$log_dir/$g.log"; rc=2
+        dc logs --no-color > "$log_dir/$g.services.log" 2>&1 || true
+    else
+        boot=$(( ($(date +%s) - start) / 60 ))
+        echo ">> [$g] stack up in $boot min; running the tests" >&2
+        # Same commands as the "Setup test databases" step of run-test-suite.yml
+        {
+            dc exec -T db psql -U postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE pid <> pg_backend_pid();"
+            dc exec -T db createdb -U postgres -T postgres test_postgres
+            dc exec -T db createdb -U postgres -T postgres test_geonode
+            dc exec -T db createdb -U postgres -T postgres test_geonode_data
+            dc exec -T db psql -U postgres -d test_geonode -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+            dc exec -T db psql -U postgres -d test_geonode_data -c "CREATE EXTENSION IF NOT EXISTS postgis;"
+        } >> "$log_dir/$g.up.log" 2>&1
+        set +e
+        # The command goes to the log verbatim (a quoted here-doc does not expand $TESTS and friends)
+        printf 'set -euo pipefail\ncat <<'"'"'__GEONODE_TESTS_CMD__'"'"'\nCOMMAND: %s\n__GEONODE_TESTS_CMD__\n%s\n' "$cmd" "$cmd" \
+            | dc exec -T django bash -s > "$log_dir/$g.log" 2>&1
+        rc=$?
+        set -e
+        dc logs --no-color > "$log_dir/$g.services.log" 2>&1 || true
+    fi
+    if $keep && [ "$g" = "${groups[-1]}" ]; then echo ">> Stack kept; remove it with: $0 --down" >&2; else stack_down; fi
+    mins=$(( ($(date +%s) - start) / 60 ))
+    result="$(grep -E '^Ran [0-9]+ tests? in |^(OK|FAILED)( \(.*\))?$|^ERROR: stack' "$log_dir/$g.log" | awk 'NR > 1 { printf ", " } { printf "%s", $0 }' || true)"
+    [ "$rc" -eq 0 ] || overall=1
+    line="$(printf '%-12s %-14s %3d min  %s' "$g" "$([ "$rc" -eq 0 ] && echo PASSED || echo "FAILED (rc=$rc)")" "$mins" "${result:-no summary; see the log}")"
+    failed="$(grep -E '^(FAIL|ERROR): ' "$log_dir/$g.log" | sed -E 's/^(FAIL|ERROR): [^ ]+ \((.*)\)$/\1 \2/' || true)"
+    if [ -n "$failed" ]; then
+        n=$(printf '%s\n' "$failed" | wc -l | tr -d ' ')
+        line+=$'\n'"$(printf '%s\n' "$failed" | head -n "$max_failed" | sed 's/^/      /')"
+        [ "$n" -le "$max_failed" ] || line+=$'\n'"      ... and $((n - max_failed)) more; see $g.log"
+    fi
+    summary+=("$line"); echo ">> $line" >&2
+done
+
+{
+    echo "GeoNode $ref ($rev) on $base_image, $platform, $(date '+%F %T')"
+    cat "$log_dir/image.txt"
+    echo "Services:"; sed -n 's/^    image: /  /p' "$log_dir/override.yml" | sort -u
+    echo
+    for line in "${summary[@]}"; do printf '  %s\n' "$line"; done
+} | tee "$log_dir/summary.txt"
+exit "$overall"

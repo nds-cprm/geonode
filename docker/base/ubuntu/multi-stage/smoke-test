@@ -1,0 +1,186 @@
+#!/bin/bash
+# Smoke test of a GeoNode base image built from docker/base/ubuntu/multi-stage (installed in the image as
+# /usr/local/bin/geonode-base-smoke-test; the "runtime" and "devel" stages run it at the end).
+#
+# Checks:
+# - every package of /etc/geonode-base/requirements.txt is installed in /usr/src/venv at a version that
+#   matches its pin, and its modules import (uWSGI: the uwsgi binary runs and reports the same version);
+# - the GDAL bindings have the version of the system libgdal, gdal_array works with numpy, and the PROJ
+#   database is found;
+# - psycopg2 is linked to libpq, and pg_dump has the major version the image was built with;
+# - the GDAL command-line tools run, libmagic is present (python-magic loads it with ctypes), invoke is on
+#   /usr/local/bin, and "pip check" is clean;
+# - the system Python has no GDAL bindings and /usr/bin has no GDAL Python utilities: the virtualenv ones
+#   are used.
+#
+# Usage: geonode-base-smoke-test [--no-system]
+#   --no-system  skip the last group of checks (for derived images that install python3-gdal on purpose)
+#
+# Exit status: 0 if every check passes, 1 otherwise. Each check prints "ok" or "FAIL".
+
+set -u -o pipefail
+
+CONF_DIR=/etc/geonode-base
+VENV=/usr/src/venv
+check_system=1
+
+case "${1:-}" in
+    --no-system) check_system=0 ;;
+    -h|--help) awk 'NR > 1 && /^$/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
+    "") ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+esac
+
+failures=0
+ok() { printf 'ok    %s\n' "$*"; }
+fail() { printf 'FAIL  %s\n' "$*"; failures=$((failures + 1)); }
+check() {  # check "description" command...
+    local description="$1"; shift
+    local output
+    if output="$("$@" 2>&1)"; then
+        ok "$description${output:+: ${output%%$'\n'*}}"
+    else
+        fail "$description${output:+: ${output##*$'\n'}}"
+    fi
+}
+
+[ -r "$CONF_DIR/build-info" ] && . "$CONF_DIR/build-info"
+echo "GeoNode base image: release ${UBUNTU_RELEASE:-?} (ubuntu:${UBUNTU_IMAGE_TAG:-?}), PostgreSQL client ${POSTGRESQL_CLIENT_VERSION:-?}"
+
+# --- Python packages of requirements.txt -------------------------------------------------------------
+# One line per package, printed by Python: "ok|FAIL<TAB>message"
+while IFS=$'\t' read -r status message; do
+    if [ "$status" = ok ]; then ok "$message"; else fail "$message"; fi
+done < <("$VENV/bin/python" - "$CONF_DIR/requirements.txt" <<'EOF'
+import importlib
+import importlib.metadata as metadata
+import subprocess
+import sys
+
+try:
+    from pip._vendor.packaging.requirements import Requirement
+except ImportError:  # pip without vendored packaging: compare "==" pins only
+    Requirement = None
+
+# Distributions whose modules only import inside another program: check the program instead
+PROGRAMS = {"uwsgi": ["uwsgi", "--version"]}
+
+
+def modules(dist):
+    """Top-level import names of an installed distribution."""
+    top_level = dist.read_text("top_level.txt")
+    if top_level:
+        return [name for name in top_level.split() if not name.startswith("_")]
+    names = set()
+    for path in dist.files or []:
+        parts = path.parts
+        if parts[0].endswith((".dist-info", ".data", "..")) or parts[0] in ("bin", "__pycache__"):
+            continue
+        if len(parts) == 2 and parts[1] == "__init__.py":
+            names.add(parts[0])
+        elif len(parts) == 1 and parts[0].endswith(".py"):
+            names.add(parts[0][:-3])
+    return sorted(n for n in names if not n.startswith("_"))
+
+
+def matches(line, version):
+    if Requirement is not None:
+        requirement = Requirement(line)
+        return requirement.name, requirement.specifier.contains(version, prereleases=True)
+    name, _, pin = line.partition("==")
+    pin = pin.strip()
+    if pin.endswith(".*"):
+        return name.strip(), version == pin[:-2] or version.startswith(pin[:-1])
+    return name.strip(), not pin or version == pin
+
+
+for raw in open(sys.argv[1]):
+    line = raw.split("#", 1)[0].strip()
+    if not line:
+        continue
+    name = line
+    try:
+        name = (Requirement(line).name if Requirement else line.split("=")[0]).strip()
+        dist = metadata.distribution(name)
+        _, good = matches(line, dist.version)
+        if not good:
+            print(f"FAIL\t{line}: installed {dist.version}")
+            continue
+        key = name.lower()
+        if key in PROGRAMS:
+            out = subprocess.run(PROGRAMS[key], capture_output=True, text=True, check=True).stdout.strip()
+            if out != dist.version:
+                print(f"FAIL\t{line}: {' '.join(PROGRAMS[key])} reports {out}")
+                continue
+            print(f"ok\t{name} {dist.version} ({PROGRAMS[key][0]} runs)")
+            continue
+        names = modules(dist)
+        for module in names:
+            importlib.import_module(module)
+        print(f"ok\t{name} {dist.version} (import {', '.join(names) or '-'})")
+    except Exception as error:  # noqa: BLE001 - report any failure as a failed check
+        print(f"FAIL\t{line}: {type(error).__name__}: {error}")
+EOF
+)
+
+# --- GDAL ---------------------------------------------------------------------------------------------
+gdal_bindings() {
+    "$VENV/bin/python" - <<'EOF'
+import subprocess
+import numpy
+from osgeo import gdal, gdal_array, ogr, osr
+
+gdal.UseExceptions()
+library = subprocess.run(["gdalinfo", "--version"], capture_output=True, text=True, check=True).stdout
+library = library.split()[1].rstrip(",")
+assert gdal.__version__ == library, f"bindings {gdal.__version__}, libgdal {library}"
+dataset = gdal_array.OpenArray(numpy.arange(4, dtype="uint8").reshape(2, 2))
+assert dataset.ReadAsArray().sum() == 6, "gdal_array round trip"
+srs = osr.SpatialReference()
+srs.ImportFromEPSG(4326)
+assert ogr.GetDriverByName("GPKG") is not None, "no GPKG driver"
+print(f"GDAL {gdal.__version__} (bindings = libgdal, gdal_array with numpy {numpy.__version__}, PROJ ok)")
+EOF
+}
+check "GDAL bindings" gdal_bindings
+check "ogr2ogr runs" ogr2ogr --version
+check "gdal_translate runs" gdal_translate --version
+
+# --- PostgreSQL -------------------------------------------------------------------------------------
+check "psycopg2 linked to libpq" "$VENV/bin/python" -c \
+    'import psycopg2.extensions as e; v = e.libpq_version(); print(f"libpq {v // 10000}.{v % 10000}")'
+pg_dump_major() {
+    local version major
+    version="$(pg_dump --version)" || return 1
+    major="$(sed -E 's/.* ([0-9]+)(\.[0-9]+)*.*/\1/' <<<"$version")"
+    echo "$version"
+    [ -z "${POSTGRESQL_CLIENT_VERSION:-}" ] || [ "$major" = "$POSTGRESQL_CLIENT_VERSION" ] || {
+        echo "expected major $POSTGRESQL_CLIENT_VERSION, got $major"; return 1; }
+}
+check "pg_dump has the expected major version" pg_dump_major
+
+# --- Other runtime pieces ---------------------------------------------------------------------------
+check "libmagic present" bash -c 'ldconfig -p | grep -m1 -o "libmagic\.so\.1"'
+check "invoke on /usr/local/bin" /usr/local/bin/invoke --version
+check "pip check" "$VENV/bin/pip" check
+
+# --- No system Python GDAL bindings -----------------------------------------------------------------
+if [ "$check_system" = 1 ]; then
+    check "python3-gdal not installed" bash -c \
+        "! dpkg-query -W -f='\${Status}' python3-gdal 2>/dev/null | grep -q 'install ok installed'"
+    check "no osgeo in the system Python" bash -c '[ ! -e /usr/lib/python3/dist-packages/osgeo ]'
+    no_py_in_usr_bin() {
+        local found
+        found="$(find /usr/bin -maxdepth 1 -name '*.py' | tr '\n' ' ')"
+        [ -z "$found" ] || { echo "found: $found"; return 1; }
+    }
+    check "no *.py in /usr/bin" no_py_in_usr_bin
+    check "gdal_calc.py is the virtualenv one" bash -c \
+        '[ "$(command -v gdal_calc.py)" = /usr/src/venv/bin/gdal_calc.py ] || { command -v gdal_calc.py; exit 1; }'
+fi
+
+if [ "$failures" -gt 0 ]; then
+    echo "$failures check(s) failed"
+    exit 1
+fi
+echo "all checks passed"

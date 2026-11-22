@@ -1,0 +1,13 @@
+# Python packages built into /usr/src/venv by the "build" stage of ../Dockerfile for Ubuntu 26.04
+# (GeoNode master). Same versions pinned by GeoNode master (pyproject.toml): psycopg2, uWSGI and numpy 1.26
+# have no wheel for Python 3.14 and need a compiler, which the final image does not have.
+#
+# GDAL is not listed: its version must match the system libgdal, so the Dockerfile takes it from
+# "gdal-config --version". numpy is installed before GDAL, so the bindings are built with gdal_array.
+#
+# The image keeps a copy in /etc/geonode-base/requirements.txt, checked by geonode-base-smoke-test.
+numpy==1.26.*
+psycopg2==2.9.13
+uWSGI==2.0.30
+invoke==2.2.0
+sherlock==0.4.1
