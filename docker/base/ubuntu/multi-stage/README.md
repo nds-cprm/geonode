@@ -171,6 +171,16 @@ used. The pin matters because PGDG also ships newer GDAL, PROJ, GEOS and `libpq`
 time of writing). Without it, an `apt-get install` or `upgrade` in a derived image would replace the
 `libgdal` the bindings were built against.
 
+One exception: `libpq5` and `libpq-dev` always come from PGDG, at priority 600. `postgresql-client-NN`
+depends on `libpq5 (>= NN)`, which the Ubuntu `libpq5` may not satisfy (16 on 24.04 with client 17 or 18:
+apt cannot install the client). PGDG ships a single `libpq5`, built from the latest stable
+PostgreSQL (19 at the time of writing), whatever the client version. The soname is still `libpq.so.5`, and
+the PGDG FAQ states that "libpq5 is compatible with older versions"
+([Apt/FAQ](https://wiki.postgresql.org/wiki/Apt/FAQ), "I want libpq5 for version X, but there is only
+version Y in the repository"); the Ubuntu packages linked to it (`libgdal34t64`) depend on an unversioned
+`libpq5`, and the smoke test checks `psycopg2` and GDAL against it. `libpq-dev` goes along because the
+Ubuntu one depends on its exact `libpq5` version (`devel` stage).
+
 ## Smoke test
 
 `smoke-test` runs at the end of the `runtime` and `devel` stages, so every tagged image has passed it. It

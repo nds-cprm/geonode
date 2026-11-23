@@ -180,9 +180,15 @@ RUN pg_client="${POSTGRESQL_CLIENT_VERSION}" && \
     # Low priority for PGDG: it only provides what Ubuntu lacks (postgresql-client-NN). PGDG also ships
     # newer GDAL, PROJ, GEOS and libpq builds; without this pin an "apt-get install" or "upgrade" in a
     # derived image would replace the libgdal the GDAL bindings were built against.
-    printf 'Package: *\nPin: origin apt.postgresql.org\nPin-Priority: 100\n' > /etc/apt/preferences.d/pgdg && \
+    # Exception: libpq5 and libpq-dev always come from PGDG (priority 600, above Ubuntu's 500).
+    # postgresql-client-NN needs libpq5 >= NN, which the Ubuntu libpq5 may not satisfy (16 on 24.04 with
+    # client 17); PGDG ships the libpq5 of the latest stable PostgreSQL. libpq-dev goes along because the
+    # Ubuntu one depends on its exact libpq5 version ("devel" stage). The soname stays libpq.so.5 and newer
+    # libpq versions keep the ABI, so the Ubuntu packages linked to it (libgdal, psycopg2...) keep working.
+    printf 'Package: *\nPin: origin apt.postgresql.org\nPin-Priority: 100\n\nPackage: libpq5 libpq-dev\nPin: origin apt.postgresql.org\nPin-Priority: 600\n' \
+        > /etc/apt/preferences.d/pgdg && \
     apt-get update -y && \
-    apt-get install -y --no-install-recommends "postgresql-client-${pg_client}" && \
+    apt-get install -y --no-install-recommends "postgresql-client-${pg_client}" libpq5 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/runtime-packages.txt && \
     # What this image was built with, read by geonode-base-smoke-test
