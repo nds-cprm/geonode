@@ -411,7 +411,7 @@ Os digests são os do Docker Hub, conferidos na API do registry: cada tag é um 
 - o smoke test passou no fim de cada stage, nas oito imagens;
 - os pacotes de runtime são os mesmos (99 na 24.04 e 112 na 26.04), assim como o total de pacotes `dpkg` e de `-dev` da seção 8;
 - os tamanhos são os da seção 8, com diferença de menos de 1 MB;
-- os CVEs (Trivy 0.76.2, imagens lidas do Docker Hub) são os mesmos das imagens anteriores, varridas no mesmo dia com o mesmo banco: 111 e 97 nas `release` e 241 na `devel` da 26.04, sem crítico nem alto nos pacotes do SO das `release`. A troca da `libpq5` 16 do Ubuntu pela 19 do PGDG, na 24.04, não acrescentou CVE. A varredura da `ubuntu-24.04-pg15-devel` nova ainda não terminou; a anterior tinha 538.
+- os CVEs (Trivy 0.76.2, imagens lidas do Docker Hub) são os mesmos das imagens anteriores, varridas no mesmo dia com o mesmo banco: 111 (24.04) e 97 (26.04) nas `release`, e 538 (24.04) e 241 (26.04) nas `devel`, iguais nas duas arquiteturas e sem crítico nem alto nos pacotes do SO das `release`. A troca da `libpq5` 16 do Ubuntu pela 19 do PGDG, na 24.04, não acrescentou CVE.
 
 O cache do stage `build` não foi aproveitado nas duas versões, e o venv foi compilado de novo. A causa mais provável é uma atualização das imagens `ubuntu:24.04` e `ubuntu:26.04`, não confirmada. A 26.04 `release` levou 66 minutos, também por causa de uma lentidão do `archive.ubuntu.com` no início do build (13 a 31 kB/s).
 
