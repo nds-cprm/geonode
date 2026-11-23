@@ -40,8 +40,8 @@ in Portuguese):
 
 | Base | GeoNode | Tests | Result |
 |---|---|---|---|
-| `ubuntu24.04-pg15` | 5.0.x | 1,527 | all 7 groups pass |
-| `ubuntu26.04-pg18` | master | 2,046 | 1 error, caused by the test environment (`test_map_default_thumb`, see "Known points") |
+| `ubuntu-24.04-pg15` | 5.0.x | 1,527 | all 7 groups pass |
+| `ubuntu-26.04-pg18` | master | 2,046 | 1 error, caused by the test environment (`test_map_default_thumb`, see "Known points") |
 
 On 26.04 the `security` group passed on the second attempt: on the first one the stack did not start,
 because Django connected while the emulated `geonode/postgis` container was restarting after initializing
@@ -54,15 +54,16 @@ as manifest lists, and the smoke test passed on all eight images: at the end of 
 again on each architecture pulled from the manifest list (19 checks on 24.04, 17 on 26.04). The arm64
 images have the same package counts and the same vulnerabilities as the figures above.
 
-| Tag | amd64 (filesystem) | arm64 (filesystem) | Smoke test |
+| Tag | amd64 | arm64 | Smoke test |
 |---|---|---|---|
-| `ubuntu24.04-pg15` | 523 MB | 536 MB | ✅ both |
-| `ubuntu24.04-pg15-devel` | 1,227 MB | 1,196 MB | ✅ both |
-| `ubuntu26.04-pg18` | 621 MB | 618 MB | ✅ both |
-| `ubuntu26.04-pg18-devel` | 1,427 MB | 1,384 MB | ✅ both |
+| `ubuntu-24.04-pg15` | 546 MB | 570 MB | ✅ both |
+| `ubuntu-24.04-pg15-devel` | 1.25 GB | 1.23 GB | ✅ both |
+| `ubuntu-26.04-pg18` | 659 MB | 666 MB | ✅ both |
+| `ubuntu-26.04-pg18-devel` | 1.47 GB | 1.43 GB | ✅ both |
 
-Filesystem sizes come from `du` inside the container, so they are lower than the image sizes in the
-table above, which count the layers.
+Sizes are the image sizes Podman reports for each architecture of the manifest list
+(`podman image inspect --format '{{.Size}}'`, decimal units as in `podman images`); the manifest list
+itself shows as 1.1 kB. The 24.04 figures are those of the images rebuilt with `get-runtime-packages`.
 
 ## Layout
 
@@ -70,6 +71,7 @@ table above, which count the layers.
 |---|---|
 | `Dockerfile` | The multi-stage build, shared by every release |
 | `smoke-test` | Checks a built image. The image has it as `/usr/local/bin/geonode-base-smoke-test`, and the `runtime` and `devel` stages run it at the end |
+| `get-runtime-packages` | Lists the Ubuntu packages that provide the shared libraries of the virtualenv binaries (found with `ldd` and `dpkg -S`). The `build` stage runs it, and `runtime` installs the list; `--help` shows the usage |
 | `<release>/requirements.txt` | Python packages compiled into the virtualenv: the packages pinned by the matching GeoNode line that have no wheel for the Python of that release, plus `invoke` and `sherlock` |
 | `geonode-tests` | Runs the GeoNode CI test suite on a GeoNode image built on top of a base image (see "Testing a base image") |
 | `RELATORIO_TESTES_GEONODE.md` | Test report (in Portuguese) |
@@ -107,21 +109,21 @@ work unchanged. The image keeps the root user and defines no `ENTRYPOINT`.
 Run these from the root of the repository. Docker and Podman take the same commands, and BuildKit is not
 required. The defaults build Ubuntu 26.04; for 24.04, pass its three values. `--target` picks the stage.
 
-Suggested tags put both versions in the name: `ubuntu<UBUNTU_IMAGE_TAG>-pg<POSTGRESQL_CLIENT_VERSION>` for
+Suggested tags put both versions in the name: `ubuntu-<UBUNTU_IMAGE_TAG>-pg<POSTGRESQL_CLIENT_VERSION>` for
 `release`, with `-devel` appended for `devel`.
 
 ```bash
 # Ubuntu 26.04 (GeoNode master), PostgreSQL client 18: the defaults
-docker build --target release -t geonode/geonode-base:ubuntu26.04-pg18 docker/base/ubuntu/multi-stage
-docker build --target devel -t geonode/geonode-base:ubuntu26.04-pg18-devel docker/base/ubuntu/multi-stage
+docker build --target release -t geonode/geonode-base:ubuntu-26.04-pg18 docker/base/ubuntu/multi-stage
+docker build --target devel -t geonode/geonode-base:ubuntu-26.04-pg18-devel docker/base/ubuntu/multi-stage
 
 # Ubuntu 24.04 (GeoNode 5.0.x), PostgreSQL client 15
 docker build --target release --build-arg UBUNTU_RELEASE=24 \
   --build-arg EXTRA_BUILD_PACKAGES="libmemcached-dev" --build-arg POSTGRESQL_CLIENT_VERSION=15 \
-  -t geonode/geonode-base:ubuntu24.04-pg15 docker/base/ubuntu/multi-stage
+  -t geonode/geonode-base:ubuntu-24.04-pg15 docker/base/ubuntu/multi-stage
 docker build --target devel --build-arg UBUNTU_RELEASE=24 \
   --build-arg EXTRA_BUILD_PACKAGES="libmemcached-dev" --build-arg POSTGRESQL_CLIENT_VERSION=15 \
-  -t geonode/geonode-base:ubuntu24.04-pg15-devel docker/base/ubuntu/multi-stage
+  -t geonode/geonode-base:ubuntu-24.04-pg15-devel docker/base/ubuntu/multi-stage
 
 # Ubuntu 24.04 for a PostgreSQL 17 database, on a dated ubuntu image, with Podman
 podman build --target release --build-arg UBUNTU_RELEASE=24 --build-arg UBUNTU_IMAGE_TAG=noble-20260101 \
@@ -133,12 +135,12 @@ To build both architectures under one tag (a manifest list):
 
 ```bash
 # Podman: local manifest list; push it with "podman manifest push"
-podman build --platform linux/amd64,linux/arm64 --manifest geonode/geonode-base:ubuntu26.04-pg18 \
+podman build --platform linux/amd64,linux/arm64 --manifest geonode/geonode-base:ubuntu-26.04-pg18 \
   --target release docker/base/ubuntu/multi-stage
 
 # Docker: buildx, pushed to the registry
 docker buildx build --platform linux/amd64,linux/arm64 --target release \
-  -t geonode/geonode-base:ubuntu26.04-pg18 --push docker/base/ubuntu/multi-stage
+  -t geonode/geonode-base:ubuntu-26.04-pg18 --push docker/base/ubuntu/multi-stage
 ```
 
 A build host of another architecture builds the foreign one under QEMU emulation. It works, but it is
@@ -175,7 +177,7 @@ time of writing). Without it, an `apt-get install` or `upgrade` in a derived ima
 also stays in the image as `geonode-base-smoke-test`:
 
 ```bash
-docker run --rm geonode/geonode-base:ubuntu26.04-pg18 geonode-base-smoke-test
+docker run --rm geonode/geonode-base:ubuntu-26.04-pg18 geonode-base-smoke-test
 ```
 
 It prints one `ok` or `FAIL` line per check, and exits with 1 if any check fails:
@@ -285,7 +287,7 @@ The virtualenv copies stay first in the `PATH`.
 ## Using it
 
 As the base of the GeoNode image, replace the `FROM` of the root `Dockerfile` with the image of the
-matching release, for instance `FROM geonode/geonode-base:ubuntu26.04-pg18` for GeoNode master.
+matching release, for instance `FROM geonode/geonode-base:ubuntu-26.04-pg18` for GeoNode master.
 
 The final image has no compiler. Every Python package installed on top of it must therefore have a wheel
 for the Python of the release on the target architecture, or be pure Python. Once the packages of
@@ -303,14 +305,14 @@ so a failure points to the base image or to the GeoNode code, not to customizati
 
 ```bash
 # GeoNode master on the Ubuntu 26.04 base
-docker build --target release -t geonode/geonode-base:ubuntu26.04-pg18 docker/base/ubuntu/multi-stage
-./docker/base/ubuntu/multi-stage/geonode-tests --ref master --base geonode/geonode-base:ubuntu26.04-pg18
+docker build --target release -t geonode/geonode-base:ubuntu-26.04-pg18 docker/base/ubuntu/multi-stage
+./docker/base/ubuntu/multi-stage/geonode-tests --ref master --base geonode/geonode-base:ubuntu-26.04-pg18
 
 # GeoNode 5.0.x on the Ubuntu 24.04 base
 docker build --target release --build-arg UBUNTU_RELEASE=24 \
   --build-arg EXTRA_BUILD_PACKAGES="libmemcached-dev" --build-arg POSTGRESQL_CLIENT_VERSION=15 \
-  -t geonode/geonode-base:ubuntu24.04-pg15 docker/base/ubuntu/multi-stage
-./docker/base/ubuntu/multi-stage/geonode-tests --ref 5.0.x --base geonode/geonode-base:ubuntu24.04-pg15
+  -t geonode/geonode-base:ubuntu-24.04-pg15 docker/base/ubuntu/multi-stage
+./docker/base/ubuntu/multi-stage/geonode-tests --ref 5.0.x --base geonode/geonode-base:ubuntu-24.04-pg15
 ```
 
 What it does, following `.github/workflows/tests.yml` and `run-test-suite.yml` of the tested ref:
@@ -334,7 +336,7 @@ Options (see `./docker/base/ubuntu/multi-stage/geonode-tests --help`):
 
 | Option | Effect |
 |---|---|
-| `-b, --base IMAGE` | Base image under test (default `docker.io/ndscprm/geonode-base:ubuntu26.04-pg18`) |
+| `-b, --base IMAGE` | Base image under test (default `docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18`) |
 | `-r, --ref REF` | Git ref of the GeoNode source to build and test (default `HEAD`). It must match the base, since GeoNode pins GDAL to the `libgdal` of the base: `5.0.x` with 24.04, `master` with 26.04 |
 | `--platform PLATFORM` | Platform of the GeoNode image (default: the host's) |
 | `--service-image S=IMG` | Use `IMG` for the compose service `S`, e.g. a native arm64 PostGIS; repeatable |

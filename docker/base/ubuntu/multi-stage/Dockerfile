@@ -2,8 +2,8 @@
 # single-stage docker/base/ubuntu/<release>/Dockerfile. See README.md next to this file.
 #
 #   docker build --target release --build-arg UBUNTU_RELEASE=24 --build-arg EXTRA_BUILD_PACKAGES="libmemcached-dev" \
-#     --build-arg POSTGRESQL_CLIENT_VERSION=15 -t geonode-base:ubuntu24.04-pg15 docker/base/ubuntu/multi-stage
-#   docker build --target devel -t geonode-base:ubuntu26.04-pg18-devel docker/base/ubuntu/multi-stage
+#     --build-arg POSTGRESQL_CLIENT_VERSION=15 -t geonode-base:ubuntu-24.04-pg15 docker/base/ubuntu/multi-stage
+#   docker build --target devel -t geonode-base:ubuntu-26.04-pg18-devel docker/base/ubuntu/multi-stage
 #
 # (podman build takes the same arguments)
 #
@@ -102,26 +102,10 @@ RUN python3 -m venv /usr/src/venv && \
     pip install --no-cache-dir --no-build-isolation "GDAL==${GDAL_VERSION}" && \
     python -c "from osgeo import gdal, gdal_array; assert gdal.__version__ == '${GDAL_VERSION}', gdal.__version__"
 
-# Ubuntu packages that provide the shared libraries used by the binaries of the virtualenv.
-# - Libraries loaded at runtime with ctypes are not seen by ldd and are installed explicitly in
-#   "runtime" (libmagic1, for python-magic, used by GeoNode to validate every upload).
-# - Libraries bundled with the wheels (inside the virtualenv) are not Ubuntu packages and are skipped.
-# - dpkg -S also prints "diversion by ..." lines and "pkg1, pkg2: path" for shared paths; only the
-#   first package is kept.
-# - ldd exits non-zero for files that are not dynamic executables; that must not fail the build.
-RUN { find /usr/src/venv -type f \( -name '*.so' -o -name '*.so.*' -o -path '*/bin/uwsgi' \) -print0 \
-        | xargs -0 ldd 2>/dev/null || true; } \
-        | awk '$2 == "=>" && $3 ~ /^\// { print $3 }' \
-        | sort -u \
-        | while read -r lib; do \
-            real="$(readlink -f "$lib")"; \
-            for path in "$lib" "$real" "/usr${lib}" "${lib#/usr}" "/usr${real}" "${real#/usr}"; do \
-                pkg="$(dpkg -S "$path" 2>/dev/null | awk -F': ' '!/^diversion / { split($1, p, ", "); sub(/:.*/, "", p[1]); print p[1]; exit }')" && [ -n "$pkg" ] && { echo "$pkg"; break; }; \
-            done || true; \
-          done \
-        | sort -u > /runtime-packages.txt && \
-    echo "Runtime packages:" && cat /runtime-packages.txt && \
-    grep -q '^libgdal' /runtime-packages.txt && grep -q '^libpq' /runtime-packages.txt
+# Ubuntu packages that provide the shared libraries used by the binaries of the virtualenv, installed by
+# "runtime" (see get-runtime-packages --help). It fails if a system library belongs to no package
+COPY get-runtime-packages /usr/local/bin/geonode-base-get-runtime-packages
+RUN geonode-base-get-runtime-packages /usr/src/venv > /runtime-packages.txt
 
 
 FROM ubuntu:${UBUNTU_IMAGE_TAG} AS runtime

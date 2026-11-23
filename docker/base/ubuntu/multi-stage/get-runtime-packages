@@ -1,0 +1,122 @@
+#!/bin/bash
+# Lists the Ubuntu packages that provide the shared libraries used by the binaries of a virtualenv. The
+# "build" stage runs it and the "runtime" stage installs the list, so the final image gets the libraries
+# the compiled modules need and nothing else.
+#
+# - The binaries are the *.so files of the virtualenv and its uwsgi executable; ldd lists their libraries.
+# - Libraries bundled with the wheels (inside the virtualenv) are not Ubuntu packages and are skipped.
+# - Every other library must belong to an Ubuntu package. One that does not means the ldd -> dpkg -S
+#   mapping broke (or a library was installed outside dpkg), so the list would be incomplete: the script
+#   fails and names it.
+# - Libraries loaded at runtime with ctypes are not seen by ldd and must be installed explicitly
+#   (libmagic1, for python-magic, used by GeoNode to validate every upload).
+# - With merged /usr, a library may be registered in dpkg under /lib or /usr/lib, by its symlink or by its
+#   real name: every combination is tried.
+# - dpkg -S also prints "diversion by ..." lines and "pkg1, pkg2: path" for shared paths; only the first
+#   package is kept, without its architecture qualifier.
+#
+# Installed in the "build" stage as /usr/local/bin/geonode-base-get-runtime-packages. Run it with --help
+# for the usage.
+
+set -euo pipefail
+
+prog="$(basename "$0")"
+
+usage() {
+    cat <<EOF
+Usage: $prog [VENV]
+
+Lists the Ubuntu packages that provide the shared libraries used by the binaries (*.so files and the
+uwsgi executable) of a Python virtualenv, found with ldd and dpkg -S. The GeoNode base image uses it in
+its "build" stage; its "runtime" stage installs the list.
+
+Arguments:
+  VENV        virtualenv to scan (default: /usr/src/venv)
+
+Options:
+  -h, --help  show this help and exit
+
+Output:
+  stdout      the package names, one per line, sorted (redirect it to a file)
+  stderr      the same list, indented, and the error messages, for the build log
+
+Libraries bundled with the wheels (inside VENV) are skipped. Any other library that belongs to no Ubuntu
+package is an error, since the list would be incomplete. Libraries loaded with ctypes (e.g. libmagic,
+used by python-magic) are invisible to ldd and are not listed.
+
+Exit status:
+  0  success
+  1  a system library belongs to no package, or no package was found
+  2  bad usage (unknown option, more than one VENV, VENV is not a directory)
+
+Example:
+  $prog /usr/src/venv > /runtime-packages.txt
+EOF
+}
+
+bad_usage() {
+    echo "$prog: $*" >&2
+    echo "Try '$prog --help' for more information." >&2
+    exit 2
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -h|--help) usage; exit 0 ;;
+        --) shift; break ;;
+        -*) bad_usage "unknown option: $1" ;;
+        *) break ;;
+    esac
+done
+[ $# -le 1 ] || bad_usage "only one virtualenv can be scanned"
+[ -d "${1:-/usr/src/venv}" ] || bad_usage "not a directory: ${1:-/usr/src/venv}"
+venv="$(readlink -f "${1:-/usr/src/venv}")"
+
+# Absolute paths of the libraries the virtualenv binaries link to (ldd exits non-zero for files that are
+# not dynamic executables, which is expected)
+linked_libraries() {
+    { find "$venv" -type f \( -name '*.so' -o -name '*.so.*' -o -path '*/bin/uwsgi' \) -print0 \
+        | xargs -0 -r ldd 2>/dev/null || true; } \
+        | awk '$2 == "=>" && $3 ~ /^\// { print $3 }' \
+        | sort -u
+}
+
+# Package that owns a library, trying the /lib and /usr/lib spellings of the path and of its target
+owner() {
+    local lib="$1" real="$2" path pkg
+    for path in "$lib" "$real" "/usr${lib}" "${lib#/usr}" "/usr${real}" "${real#/usr}"; do
+        pkg="$(dpkg -S "$path" 2>/dev/null \
+            | awk -F': ' '!/^diversion / { split($1, p, ", "); sub(/:.*/, "", p[1]); print p[1]; exit }')" || true
+        if [ -n "$pkg" ]; then
+            echo "$pkg"
+            return 0
+        fi
+    done
+    return 1
+}
+
+packages=()
+unowned=()
+while read -r lib; do
+    real="$(readlink -f "$lib")"
+    case "$real" in
+        "$venv"/*) continue ;;  # bundled with a wheel
+    esac
+    if pkg="$(owner "$lib" "$real")"; then
+        packages+=("$pkg")
+    else
+        unowned+=("$lib")
+    fi
+done < <(linked_libraries)
+
+if [ "${#unowned[@]}" -gt 0 ]; then
+    echo "$prog: these system libraries belong to no Ubuntu package, so the list would be incomplete:" >&2
+    printf '  %s\n' "${unowned[@]}" >&2
+    exit 1
+fi
+[ "${#packages[@]}" -gt 0 ] || { echo "$prog: no Ubuntu package found for the libraries of $venv" >&2; exit 1; }
+
+list="$(printf '%s\n' "${packages[@]}" | sort -u)"
+echo "Runtime packages:" >&2
+sed 's/^/  /' <<<"$list" >&2
+echo "$list"

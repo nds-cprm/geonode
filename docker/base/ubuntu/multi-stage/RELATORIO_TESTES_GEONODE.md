@@ -14,8 +14,8 @@ Ele também traz os resultados do build da versão unificada.
 
 | Base | GeoNode | Testes | Resultado | Duração |
 |---|---|---|---|---|
-| `ubuntu24.04-pg15` | 5.0.x (`b7e73644a`) | 1.527 | ✅ os 7 grupos passaram, sem falhas (2 ignorados) | 2 h 43 min |
-| `ubuntu26.04-pg18` | master (`d74ea0392`) | 2.046 | 1 erro de ambiente (`test_map_default_thumb`), 2 ignorados; os outros 6 grupos passaram integralmente | 2 h 45 min |
+| `ubuntu-24.04-pg15` | 5.0.x (`b7e73644a`) | 1.527 | ✅ os 7 grupos passaram, sem falhas (2 ignorados) | 2 h 43 min |
+| `ubuntu-26.04-pg18` | master (`d74ea0392`) | 2.046 | 1 erro de ambiente (`test_map_default_thumb`), 2 ignorados; os outros 6 grupos passaram integralmente | 2 h 45 min |
 
 Os resultados são os mesmos das rodadas anteriores, feitas com os Dockerfiles por versão antes da retirada dos bindings Python do GDAL do sistema (seção 7): a retirada não afetou nenhum teste.
 
@@ -60,6 +60,7 @@ Todos os builds e testes deste relatório rodaram com **Podman no macOS, em arm6
 |---|---|
 | `Dockerfile` | build multi-stage único (`build` → `runtime` → `devel`/`release`) |
 | `smoke-test` | verificação da imagem, rodada no fim do `runtime` e do `devel` e instalada como `geonode-base-smoke-test` |
+| `get-runtime-packages` | lista os pacotes do Ubuntu que fornecem as bibliotecas dos binários do venv (`ldd` + `dpkg -S`); roda no estágio `build`, e o `runtime` instala a lista; `--help` mostra o uso |
 | `24/requirements.txt`, `26/requirements.txt` | pacotes Python compilados no venv para cada versão |
 | `geonode-tests` | roda a suíte de testes da CI do GeoNode sobre uma imagem do GeoNode construída em cima da base (seção 4.4) |
 
@@ -108,7 +109,7 @@ O script `docker/base/ubuntu/multi-stage/geonode-tests` (seção 4.4) segue o `.
 
 ### 4.2 Resultados
 
-Imagens testadas: `docker.io/ndscprm/geonode-base:ubuntu24.04-pg15` e `ubuntu26.04-pg18`, construídas do Dockerfile unificado, em linux/arm64. Logs em `~/.cache/geonode-base-tests/logs/20261122-130311` (5.0.x), `20261122-161925` (master) e `20261122-190007` (segunda tentativa do `security` da master). O `pip check` saiu limpo nas duas imagens do GeoNode.
+Imagens testadas: `docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15` e `ubuntu-26.04-pg18`, construídas do Dockerfile unificado, em linux/arm64. Logs em `~/.cache/geonode-base-tests/logs/20261122-130311` (5.0.x), `20261122-161925` (master) e `20261122-190007` (segunda tentativa do `security` da master). O `pip check` saiu limpo nas duas imagens do GeoNode.
 
 **Ubuntu 24.04, GeoNode 5.0.x** (`b7e73644a`, Django 5.2.16, Pillow 12.1.1):
 
@@ -162,14 +163,14 @@ A leitura do YAML usa o PyYAML da própria imagem do GeoNode, para não exigir P
 **Uso:**
 
 ```bash
-./docker/base/ubuntu/multi-stage/geonode-tests --ref master --base docker.io/ndscprm/geonode-base:ubuntu26.04-pg18
-./docker/base/ubuntu/multi-stage/geonode-tests --ref 5.0.x --base docker.io/ndscprm/geonode-base:ubuntu24.04-pg15
+./docker/base/ubuntu/multi-stage/geonode-tests --ref master --base docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18
+./docker/base/ubuntu/multi-stage/geonode-tests --ref 5.0.x --base docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15
 ./docker/base/ubuntu/multi-stage/geonode-tests --no-build --keep --ref master --base <base> csw   # um grupo, mantendo a stack
 ./docker/base/ubuntu/multi-stage/geonode-tests --down                                           # remove a stack mantida
 ```
 
 **Opções principais:**
-- **`--base`:** o padrão passou a ser `docker.io/ndscprm/geonode-base:ubuntu26.04-pg18`, já com a nomenclatura nova de tags.
+- **`--base`:** o padrão passou a ser `docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18`, já com a nomenclatura nova de tags.
 - **`--ref`:** precisa casar com a base, porque o GeoNode fixa o GDAL no `libgdal` dela: 5.0.x com a 24.04, master com a 26.04.
 - **Outras:** `--platform`, `--service-image S=IMG`, `--no-build`, `-f`/`--failfast`, `-k`/`--keep`, `--down` e `-l`/`--list`.
 - **Variáveis de ambiente:** `CONTAINER_ENGINE`, `BOOT_TIMEOUT` (padrão 3600 s), `MAX_FAILED_LIST` e `GEONODE_TESTS_DIR`.
@@ -244,10 +245,10 @@ O `smoke-test` substitui as verificações fixas que cada Dockerfile por versão
 
 | Tag | amd64 | arm64 |
 |---|---|---|
-| `ubuntu24.04-pg15` | ✅ 19/19 | ✅ 19/19 |
-| `ubuntu24.04-pg15-devel` | ✅ 19/19 | ✅ 19/19 |
-| `ubuntu26.04-pg18` | ✅ 17/17 | ✅ 17/17 |
-| `ubuntu26.04-pg18-devel` | ✅ 17/17 | ✅ 17/17 |
+| `ubuntu-24.04-pg15` | ✅ 19/19 | ✅ 19/19 |
+| `ubuntu-24.04-pg15-devel` | ✅ 19/19 | ✅ 19/19 |
+| `ubuntu-26.04-pg18` | ✅ 17/17 | ✅ 17/17 |
+| `ubuntu-26.04-pg18-devel` | ✅ 17/17 | ✅ 17/17 |
 
 A 24.04 tem duas verificações a mais porque o `requirements.txt` dela também traz o pylibmc e o psutil.
 
@@ -276,14 +277,14 @@ As alternativas descartadas, os efeitos em imagens derivadas e como reverter est
 
 **Resultado:**
 
-| Tag | Build | Pacotes `dpkg` (amd64 / arm64) | `-dev` | setuid/setgid | Tamanho do sistema de arquivos (amd64 / arm64) |
+| Tag | Build | Pacotes `dpkg` (amd64 / arm64) | `-dev` | setuid/setgid | Tamanho da imagem (amd64 / arm64) |
 |---|---|---|---|---|---|
-| `ubuntu24.04-pg15` | ✅ 11:14 → 11:45 | 241 / 241 | 1 | 13 | 523 MB / 536 MB |
-| `ubuntu24.04-pg15-devel` | ✅ 11:45 → 12:03 | 394 / 393 | 79 | 13 | 1.227 MB / 1.196 MB |
-| `ubuntu26.04-pg18` | ✅ 12:03 → 12:46 | 246 / 246 | 0 | 12 | 621 MB / 618 MB |
-| `ubuntu26.04-pg18-devel` | ✅ 12:46 → 12:56 | 433 / 432 | 107 | 12 | 1.427 MB / 1.384 MB |
+| `ubuntu-24.04-pg15` | ✅ 11:14 → 11:45 | 241 / 241 | 1 | 13 | 546 MB / 570 MB |
+| `ubuntu-24.04-pg15-devel` | ✅ 11:45 → 12:03 | 394 / 393 | 79 | 13 | 1,25 GB / 1,23 GB |
+| `ubuntu-26.04-pg18` | ✅ 12:03 → 12:46 | 246 / 246 | 0 | 12 | 659 MB / 666 MB |
+| `ubuntu-26.04-pg18-devel` | ✅ 12:46 → 12:56 | 433 / 432 | 107 | 12 | 1,47 GB / 1,43 GB |
 
-O tamanho do sistema de arquivos vem do `du` dentro do container e fica abaixo do tamanho da imagem medido pelo Podman, que conta as camadas (570 MB na `release` 24.04 em arm64, por exemplo). O venv é um pouco maior em amd64 (117 MB contra 102 MB na 24.04; 90 MB contra 84 MB na 26.04), por causa dos binários x86_64.
+O tamanho é o que o Podman reporta para a imagem de cada arquitetura da manifest list (`podman image inspect --format '{{.Size}}'`, em unidades decimais, como no `podman images`). A manifest list em si não tem tamanho: o `podman images` mostra 1,1 kB para a tag. Os valores da 24.04 são os das imagens do novo build (seção 8.2), e os da 26.04 não mudaram. A amd64 é maior na `devel` e na `release` 26.04, e menor na `release` 24.04.
 
 **O que o build unificado confirmou:**
 - **`ARG` que usa outro `ARG`:** `UBUNTU_IMAGE_TAG=${UBUNTU_RELEASE}.04` funciona no Podman (buildah).
@@ -296,10 +297,10 @@ O tamanho do sistema de arquivos vem do `du` dentro do container e fica abaixo d
 
 | Tag | CVEs únicos | Críticos / altos / médios / baixos | Pacotes do SO | Pacotes Python (e Go) | Com correção | Pacotes do SO com correção pendente |
 |---|---|---|---|---|---|---|
-| `ubuntu24.04-pg15` | 111 | 0 / 2 / 84 / 25 | 108 (C=0, H=0) | 6 | 6 | 0 |
-| `ubuntu24.04-pg15-devel` | 538 | 3 / 91 / 261 / 183 | 536 | 6 | 6 | 0 |
-| `ubuntu26.04-pg18` | 97 | 0 / 2 / 79 / 16 | 93 (C=0, H=0) | 7 | 7 | 0 |
-| `ubuntu26.04-pg18-devel` | 241 | 3 / 29 / 145 / 64 | 238 | 7 | 7 | 0 |
+| `ubuntu-24.04-pg15` | 111 | 0 / 2 / 84 / 25 | 108 (C=0, H=0) | 6 | 6 | 0 |
+| `ubuntu-24.04-pg15-devel` | 538 | 3 / 91 / 261 / 183 | 536 | 6 | 6 | 0 |
+| `ubuntu-26.04-pg18` | 97 | 0 / 2 / 79 / 16 | 93 (C=0, H=0) | 7 | 7 | 0 |
+| `ubuntu-26.04-pg18-devel` | 241 | 3 / 29 / 145 / 64 | 238 | 7 | 7 | 0 |
 
 ### 8.1 Tempo de build: arm64 nativo e amd64 emulado
 
@@ -309,8 +310,8 @@ O build foi feito com `podman build --platform linux/amd64,linux/arm64 --manifes
 
 | Tag | O que o build faz | arm64 (nativo) | amd64 (emulado) | Razão |
 |---|---|---|---|---|
-| `ubuntu24.04-pg15` (`release`) | compila psycopg2, pylibmc, uWSGI, psutil e os bindings do GDAL; monta o `runtime` | ~5 min | ~25 min | ~5× |
-| `ubuntu24.04-pg15-devel` | instala os compiladores e os `-dev` com o apt (o resto vem do cache) | ~5 min (11:45 → 11:50) | ~13 min (11:50 → 12:03) | ~2,5× |
+| `ubuntu-24.04-pg15` (`release`) | compila psycopg2, pylibmc, uWSGI, psutil e os bindings do GDAL; monta o `runtime` | ~5 min | ~25 min | ~5× |
+| `ubuntu-24.04-pg15-devel` | instala os compiladores e os `-dev` com o apt (o resto vem do cache) | ~5 min (11:45 → 11:50) | ~13 min (11:50 → 12:03) | ~2,5× |
 
 **Leitura:**
 - **Instalação de pacotes** (apt, dpkg): o amd64 emulado fica cerca de 2 a 3 vezes mais lento.
@@ -320,12 +321,54 @@ O build foi feito com `podman build --platform linux/amd64,linux/arm64 --manifes
 
 | Tag | O que o build faz | arm64 (nativo) | amd64 (emulado) | Razão |
 |---|---|---|---|---|
-| `ubuntu26.04-pg18` (`release`) | compila também o numpy 1.26 do zero (sem wheel para Python 3.14) | ~8 min (12:38 → 12:46) | ~35 min (12:03 → 12:38) | ~4,5× |
-| `ubuntu26.04-pg18-devel` | só os pacotes de compilação (o venv vem do cache) | ~5 min (12:46 → 12:51) | ~5 min (12:51 → 12:56) | ~1× |
+| `ubuntu-26.04-pg18` (`release`) | compila também o numpy 1.26 do zero (sem wheel para Python 3.14) | ~8 min (12:38 → 12:46) | ~35 min (12:03 → 12:38) | ~4,5× |
+| `ubuntu-26.04-pg18-devel` | só os pacotes de compilação (o venv vem do cache) | ~5 min (12:46 → 12:51) | ~5 min (12:51 → 12:56) | ~1× |
 
 A estimativa feita durante o build (45 a 90 minutos para a `release` em amd64) ficou acima do medido. A compilação emulada do numpy foi cerca de 4,5 vezes mais lenta que a nativa, a mesma ordem da 24.04. Na `devel` da 26.04, o amd64 levou o mesmo tempo que o arm64: a instalação dos pacotes de compilação pesou menos que na 24.04, provavelmente porque os pacotes já estavam no cache de download.
 
 **Consequência para a publicação.** Construir cada arquitetura numa máquina nativa, por exemplo com os runners arm64 do GitHub Actions para o arm64 e os comuns para o amd64, e juntar as duas numa manifest list. Isso evita a emulação: pelos números da 24.04 `release`, o build multi-arquitetura cairia de cerca de 30 para cerca de 5 minutos por tag, e menos com cache.
+
+### 8.2 Novo build com o `get-runtime-packages`
+
+**Datas:** 22/11/2026, das 19:42 às 20:11, e 23/11/2026, das 06:58 às 07:03, com os mesmos comandos.
+
+**O que mudou no Dockerfile:** a camada do estágio `build` que lista os pacotes de runtime (`find` + `ldd` + `dpkg -S` numa pipeline só) virou o script `get-runtime-packages`, com `--help`. O estágio o copia como `/usr/local/bin/geonode-base-get-runtime-packages` e roda `geonode-base-get-runtime-packages /usr/src/venv > /runtime-packages.txt`. O script fica só no `build`, fora das imagens finais.
+
+**Verificação embutida.** A pipeline terminava com dois `grep -q` que exigiam `libgdal` e `libpq` na lista. Esses dois pacotes entram no `runtime` de qualquer jeito, como dependências do `gdal-bin` e do `postgresql-client`, então a verificação não protegia a imagem: só indicava, de forma indireta, que a detecção funcionava. Uma primeira versão do script a manteve como opção (`-r PREFIXO`). A versão final a trocou por uma regra genérica, sem parâmetro:
+- as bibliotecas que ficam dentro do venv (embutidas nos wheels) são ignoradas;
+- qualquer outra biblioteca sem pacote do Ubuntu faz o script falhar (saída 1), com a lista delas, porque a lista de pacotes sairia incompleta. Isso pega uma quebra do mapeamento `ldd` → `dpkg -S` ou uma biblioteca instalada fora do dpkg;
+- uma lista vazia também é erro.
+
+**Validação antes do build:**
+- o script e a pipeline antiga rodaram dentro das imagens `devel` arm64 e produziram listas idênticas (99 pacotes na 24.04 e 112 na 26.04), sem nenhuma biblioteca sem pacote;
+- uma cópia do `libpq.so.5` em `/opt/fora`, achada pelo `ldd` via `LD_LIBRARY_PATH`, fez o script sair com 1 e citar `/opt/fora/libpq.so.5`;
+- os erros de uso saíram com 2.
+
+**Resultado:**
+
+| Tag | Build (22/11) | Pacotes de runtime (amd64 / arm64) | Smoke test (amd64 / arm64) |
+|---|---|---|---|
+| `ubuntu-24.04-pg15` | ✅ 19:42 → 20:01 | 99 / 99 | ✅ 19/19 / ✅ 19/19 |
+| `ubuntu-24.04-pg15-devel` | ✅ 20:01 → 20:09 | (mesma lista) | ✅ 19/19 / ✅ 19/19 |
+| `ubuntu-26.04-pg18` | ✅ 20:09 → 20:10 | 112 / 112 | ✅ 17/17 / ✅ 17/17 |
+| `ubuntu-26.04-pg18-devel` | ✅ 20:10 → 20:11 | (mesma lista) | ✅ 17/17 / ✅ 17/17 |
+
+O build de 23/11, com a versão final do script, levou de 1 a 2 minutos por tag. Ele rodou de novo só os dois passos do script, gerou as mesmas listas e reaproveitou o resto do cache. As imagens finais têm os mesmos IDs e digests das de 22/11. O smoke test foi rodado de novo depois de cada build, em cada arquitetura puxada da manifest list (o `uname -m` confirmou a arquitetura).
+
+**Uso do cache no build de 22/11:**
+- **24.04:** o estágio `build` não aproveitou o cache e foi refeito por inteiro, inclusive a compilação do venv. A causa provável é a limpeza das imagens antigas, que removeu as camadas intermediárias. O `runtime` e a `devel` também foram refeitos, e o smoke test rodou no fim de cada um.
+- **26.04:** só os dois passos novos rodaram. Como a lista gerada foi idêntica, o Podman reaproveitou todo o estágio `runtime`, e as imagens ficaram iguais às anteriores.
+
+**Imagens 24.04 refeitas, medidas de novo:**
+
+| Imagem | Tamanho (`podman image`) | CVEs únicos | Críticos / altos / médios / baixos | Pacotes do SO | Pacotes Python | Pacotes do SO com correção pendente |
+|---|---|---|---|---|---|---|
+| `ubuntu-24.04-pg15` amd64 | 546 MB | 111 | 0 / 2 / 84 / 25 | 108 (C=0, H=0) | 6 | 0 |
+| `ubuntu-24.04-pg15` arm64 | 570 MB | 111 | 0 / 2 / 84 / 25 | 108 (C=0, H=0) | 6 | 0 |
+| `ubuntu-24.04-pg15-devel` amd64 | 1,25 GB | 538 | 3 / 91 / 261 / 183 | 536 | 6 | 0 |
+| `ubuntu-24.04-pg15-devel` arm64 | 1,23 GB | 538 | 3 / 91 / 261 / 183 | 536 | 6 | 0 |
+
+Os CVEs vêm do Trivy 0.76.2, com a mesma contagem da seção 5, e são idênticos aos do primeiro build unificado; as amd64 foram analisadas pela primeira vez e têm os mesmos números das arm64. Na 26.04, as imagens não mudaram, e os números da seção 8 continuam valendo.
 
 ## 9. Binários setuid e setgid
 
@@ -410,7 +453,7 @@ Problemas das imagens base publicadas a partir de `docker/base/ubuntu/24/Dockerf
 ## 12. Recomendações
 
 - **Rodar a suíte do GeoNode também em amd64** antes de publicar. Em arm64 ela já passou sobre as imagens unificadas (seção 4).
-- **Versão do cliente PostgreSQL na tag:** `ubuntu<tag>-pg<cliente>` para a `release` e `-devel` para a `devel`. A ferramenta de backup e restauração do GeoNode (`geonode.br`) exige o mesmo major do banco.
+- **Versão do cliente PostgreSQL na tag:** `ubuntu-<tag>-pg<cliente>` para a `release` e `-devel` para a `devel`. A ferramenta de backup e restauração do GeoNode (`geonode.br`) exige o mesmo major do banco.
 - **Aos mantenedores do GeoNode: publicar imagens também em arm64.** Hoje as imagens oficiais só existem em amd64: a base, a do GeoNode e as dos serviços (`geonode/postgis`, `geonode/geoserver`, `geonode/geoserver_data`, `geonode/nginx`). Em máquinas arm64 (Apple Silicon, AWS Graviton, Ampere), elas só rodam emuladas, mais lentas e sujeitas a falhas como a corrida de boot do `security`. Este Dockerfile constrói as duas arquiteturas sem mudança, e `docker buildx build --platform linux/amd64,linux/arm64` nos workflows do GitHub Actions faria as mesmas tags servirem às duas.
 - **Build multi-arquitetura em máquinas nativas,** sem emulação. Os builds amd64 emulados levaram de 2,5 a 5 vezes mais que os arm64 nativos (seção 8.1), e a compilação do numpy da 26.04 ficou 4,5 vezes mais lenta em amd64.
 - **Remover os bits setuid/setgid** no fim do `runtime` (seção 9).
@@ -426,24 +469,24 @@ Problemas das imagens base publicadas a partir de `docker/base/ubuntu/24/Dockerf
 ```bash
 # A partir da raiz do repositório
 # Ubuntu 26.04 (padrões) e Ubuntu 24.04, em amd64 e arm64 (manifest list)
-podman build --platform linux/amd64,linux/arm64 --manifest docker.io/ndscprm/geonode-base:ubuntu26.04-pg18 \
+podman build --platform linux/amd64,linux/arm64 --manifest docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18 \
   --target release docker/base/ubuntu/multi-stage
-podman build --platform linux/amd64,linux/arm64 --manifest docker.io/ndscprm/geonode-base:ubuntu26.04-pg18-devel \
+podman build --platform linux/amd64,linux/arm64 --manifest docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18-devel \
   --target devel docker/base/ubuntu/multi-stage
-podman build --platform linux/amd64,linux/arm64 --manifest docker.io/ndscprm/geonode-base:ubuntu24.04-pg15 \
+podman build --platform linux/amd64,linux/arm64 --manifest docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15 \
   --target release --build-arg UBUNTU_RELEASE=24 --build-arg EXTRA_BUILD_PACKAGES=libmemcached-dev \
   --build-arg POSTGRESQL_CLIENT_VERSION=15 docker/base/ubuntu/multi-stage
-podman build --platform linux/amd64,linux/arm64 --manifest docker.io/ndscprm/geonode-base:ubuntu24.04-pg15-devel \
+podman build --platform linux/amd64,linux/arm64 --manifest docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15-devel \
   --target devel --build-arg UBUNTU_RELEASE=24 --build-arg EXTRA_BUILD_PACKAGES=libmemcached-dev \
   --build-arg POSTGRESQL_CLIENT_VERSION=15 docker/base/ubuntu/multi-stage
 
 # Smoke test de cada arquitetura
-podman run --rm --platform linux/amd64 docker.io/ndscprm/geonode-base:ubuntu26.04-pg18 geonode-base-smoke-test
-podman run --rm --platform linux/arm64 docker.io/ndscprm/geonode-base:ubuntu26.04-pg18 geonode-base-smoke-test
+podman run --rm --platform linux/amd64 docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18 geonode-base-smoke-test
+podman run --rm --platform linux/arm64 docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18 geonode-base-smoke-test
 
 # Suíte do GeoNode sobre a base (todos os grupos; logs em ~/.cache/geonode-base-tests/logs/)
-./docker/base/ubuntu/multi-stage/geonode-tests --ref master --base docker.io/ndscprm/geonode-base:ubuntu26.04-pg18
-./docker/base/ubuntu/multi-stage/geonode-tests --ref 5.0.x --base docker.io/ndscprm/geonode-base:ubuntu24.04-pg15
+./docker/base/ubuntu/multi-stage/geonode-tests --ref master --base docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18
+./docker/base/ubuntu/multi-stage/geonode-tests --ref 5.0.x --base docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15
 ```
 
 O `geonode-tests` precisa do bash 4.3 ou mais novo (no macOS, o do Homebrew), do git e do Docker ou Podman com compose.

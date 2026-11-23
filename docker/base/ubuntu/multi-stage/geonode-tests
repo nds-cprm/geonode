@@ -25,7 +25,7 @@
 #   ./geonode-tests [options] [group...]          (no group: all groups of tests.yml, in file order)
 #
 # Options:
-#   -b, --base IMAGE           base image under test (default: docker.io/ndscprm/geonode-base:ubuntu26.04-pg18)
+#   -b, --base IMAGE           base image under test (default: docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18)
 #   -r, --ref REF              git ref of the GeoNode source to build and test (default: HEAD). It must
 #                              match the base: GeoNode pins GDAL to the libgdal of the base image
 #       --platform PLATFORM    platform of the GeoNode image (default: the engine host's, e.g. linux/arm64)
@@ -50,7 +50,7 @@
 
 set -euo pipefail
 
-base_image="docker.io/ndscprm/geonode-base:ubuntu26.04-pg18"
+base_image="docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18"
 ref="HEAD"; platform=""; build=true; failfast=false; keep=false; down_only=false; list_only=false
 declare -a groups=() service_images=()
 
