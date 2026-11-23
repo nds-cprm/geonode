@@ -29,6 +29,8 @@ Os resultados são os mesmos das rodadas anteriores, feitas com os Dockerfiles p
 
 **Build unificado** (amd64 e arm64, `release` e `devel`, 24.04 e 26.04): as quatro tags foram construídas como manifest lists das 11:14 às 12:56. O smoke test passou nas oito imagens, no fim do build e de novo em cada arquitetura puxada da manifest list. As imagens arm64 têm os mesmos pacotes e os mesmos CVEs das imagens por versão (seção 8).
 
+**Imagens publicadas** em `docker.io/ndscprm/geonode-base`, em 23/11/2026, com amd64 e arm64: `ubuntu-24.04-pg15`, `ubuntu-24.04-pg15-devel`, `ubuntu-26.04-pg18` e `ubuntu-26.04-pg18-devel`. Elas já trazem a `libpq5` do PGDG (seção 8.3), com os mesmos tamanhos e CVEs das imagens anteriores.
+
 **Conclusão.** As bases multi-stage atendem o GeoNode 5.0.x (24.04) e o GeoNode master (26.04). A imagem final não tem compiladores, ocupa menos da metade das oficiais e não tem CVE crítico nem alto nos pacotes do SO. O Dockerfile unificado produz as duas versões com os mesmos passos dos Dockerfiles por versão, e cada imagem se verifica com um smoke test no fim do build.
 
 **Problemas das bases oficiais corrigidos no build unificado** (seção 10): compiladores e ferramentas de empacotamento Debian na imagem de produção, falta de `apt-get upgrade` (22 e 27 pacotes com correção pendente), pacotes recomendados instalados, bindings do GDAL sem `gdal_array`, pacotes Python do sistema duplicando o venv, pacotes do GeoNode recompilados no build dele, cliente PostgreSQL 15 fixo (na 26.04, do PGDG do 24.04), `apt-key`, limpeza de camadas sem efeito, só amd64, nenhuma verificação da imagem e dois Dockerfiles divergentes.
@@ -394,7 +396,24 @@ Isso cobre carregamento e ligação, não conexão a um banco.
 
 **Teste com o cliente 17 (24.04, arm64).** `release` e `devel` construídas com `libpq5` e `libpq-dev` `19.0-2.pgdg24.04+1` e `pg_dump` 17.12; o smoke test passou nas duas (19/19).
 
-**Novo build publicado:** _em andamento; resultados a acrescentar._
+**Novo build publicado.** As quatro tags padrão foram refeitas com a correção, em amd64 e arm64 (`podman build --platform linux/amd64,linux/arm64 --manifest`, uma tag por vez), e enviadas para o Docker Hub com `podman manifest push --all`, cada uma só depois do build das duas arquiteturas. Elas substituíram as tags publicadas às 07:51 do mesmo dia, que ainda tinham a `libpq5` do Ubuntu (16 na 24.04 e 18 na 26.04).
+
+| Tag | Build (23/11) | Push | `libpq5` | `pg_dump` | Digest da manifest list | amd64 | arm64 |
+|---|---|---|---|---|---|---|---|
+| `ubuntu-26.04-pg18` | ✅ 08:34 → 09:40 | ✅ 09:46 | `19.0-2.pgdg26.04+1` | 18.6 (Ubuntu) | `07e238350f…` | `960ca03129db` | `d71efb9bdd9b` |
+| `ubuntu-26.04-pg18-devel` | ✅ 09:46 → 09:55 | ✅ 10:02 | `19.0-2.pgdg26.04+1` | 18.6 (Ubuntu) | `e9543246a8…` | `0894d75453ef` | `ed8089e73949` |
+| `ubuntu-24.04-pg15` | ✅ 10:02 → 10:33 | ✅ 10:39 | `19.0-2.pgdg24.04+1` | 15.20 (PGDG) | `e89c494cc0…` | `c1fac7327aaa` | `7be6b11337a7` |
+| `ubuntu-24.04-pg15-devel` | ✅ 10:39 → 10:51 | ✅ 10:59 | `19.0-2.pgdg24.04+1` | 15.20 (PGDG) | `f48c756eb2…` | `cc38d310ae08` | `ba77bb8d3c06` |
+
+Os digests são os do Docker Hub, conferidos na API do registry: cada tag é um índice OCI com as duas arquiteturas. Eles diferem dos locais porque o push recomprime as camadas.
+
+**O que se manteve:**
+- o smoke test passou no fim de cada stage, nas oito imagens;
+- os pacotes de runtime são os mesmos (99 na 24.04 e 112 na 26.04), assim como o total de pacotes `dpkg` e de `-dev` da seção 8;
+- os tamanhos são os da seção 8, com diferença de menos de 1 MB;
+- os CVEs (Trivy 0.76.2, imagens lidas do Docker Hub) são os mesmos das imagens anteriores, varridas no mesmo dia com o mesmo banco: 111 e 97 nas `release` e 241 na `devel` da 26.04, sem crítico nem alto nos pacotes do SO das `release`. A troca da `libpq5` 16 do Ubuntu pela 19 do PGDG, na 24.04, não acrescentou CVE. A varredura da `ubuntu-24.04-pg15-devel` nova ainda não terminou; a anterior tinha 538.
+
+O cache do stage `build` não foi aproveitado nas duas versões, e o venv foi compilado de novo. A causa mais provável é uma atualização das imagens `ubuntu:24.04` e `ubuntu:26.04`, não confirmada. A 26.04 `release` levou 66 minutos, também por causa de uma lentidão do `archive.ubuntu.com` no início do build (13 a 31 kB/s).
 
 ## 9. Binários setuid e setgid
 

@@ -65,6 +65,21 @@ Sizes are the image sizes Podman reports for each architecture of the manifest l
 (`podman image inspect --format '{{.Size}}'`, decimal units as in `podman images`); the manifest list
 itself shows as 1.1 kB. The 24.04 figures are those of the images rebuilt with `get-runtime-packages`.
 
+**Published images.** The four tags were rebuilt on 23/11/2026, with `libpq5` and `libpq-dev` from PGDG
+(see "PostgreSQL client version and tags"), and pushed to Docker Hub as manifest lists with amd64 and
+arm64 (`podman manifest push --all`):
+
+| Image | GeoNode | `libpq5` | `pg_dump` |
+|---|---|---|---|
+| `docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15` | 5.0.x | 19.0 (PGDG) | 15.20 |
+| `docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15-devel` | 5.0.x | 19.0 (PGDG) | 15.20 |
+| `docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18` | master | 19.0 (PGDG) | 18.6 |
+| `docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18-devel` | master | 19.0 (PGDG) | 18.6 |
+
+They passed the smoke test on both architectures, and have the same runtime packages, sizes and Trivy
+results as the images above. These are unofficial images; `geonode/geonode-base` tags would come from
+the GeoNode maintainers.
+
 ## Layout
 
 | Path | Purpose |
@@ -297,7 +312,9 @@ The virtualenv copies stay first in the `PATH`.
 ## Using it
 
 As the base of the GeoNode image, replace the `FROM` of the root `Dockerfile` with the image of the
-matching release, for instance `FROM geonode/geonode-base:ubuntu-26.04-pg18` for GeoNode master.
+matching release, for instance `FROM geonode/geonode-base:ubuntu-26.04-pg18` for GeoNode master. Until
+the GeoNode maintainers publish them, the images of this directory are available as
+`ndscprm/geonode-base:<tag>` (see "Published images" above).
 
 The final image has no compiler. Every Python package installed on top of it must therefore have a wheel
 for the Python of the release on the target architecture, or be pure Python. Once the packages of
