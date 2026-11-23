@@ -370,6 +370,32 @@ O build de 23/11, com a versão final do script, levou de 1 a 2 minutos por tag.
 
 Os CVEs vêm do Trivy 0.76.2, com a mesma contagem da seção 5, e são idênticos aos do primeiro build unificado; as amd64 foram analisadas pela primeira vez e têm os mesmos números das arm64. Na 26.04, as imagens não mudaram, e os números da seção 8 continuam valendo.
 
+### 8.3 `libpq` do PGDG e novo build publicado
+
+**Data:** 23/11/2026.
+
+**Problema.** Com um cliente PostgreSQL que o Ubuntu não traz e que é mais novo que a `libpq` do Ubuntu, o build falhava no estágio `runtime`. Foi reproduzido com `UBUNTU_RELEASE=24` e `POSTGRESQL_CLIENT_VERSION=17`:
+
+```
+postgresql-client-17 : Depends: libpq5 (>= 17.12) but 16.15-0ubuntu0.24.04.1 is to be installed
+E: Unable to correct problems, you have held broken packages.
+```
+
+O pin do PGDG (prioridade 100 para tudo) mantinha como candidata a `libpq5` 16 do Ubuntu (prioridade 500), e o `postgresql-client-NN` exige `libpq5 (>= NN)`. As combinações padrão passavam por acaso: o cliente 15 aceita a `libpq5` 16 do 24.04, e o 18 da 26.04 vem do próprio Ubuntu, com a `libpq5` 18. Qualquer cliente acima de 16 no 24.04 quebrava.
+
+**Correção.** O PGDG continua com prioridade 100, para não trocar GDAL, PROJ e GEOS. A exceção são a `libpq5` e a `libpq-dev`, que vêm sempre do PGDG, com prioridade 600, e a `libpq5` é instalada junto com o cliente. A `libpq-dev` acompanha porque a do Ubuntu depende da `libpq5` exata da mesma versão, e o estágio `devel` quebraria. Uma primeira versão só trocava a `libpq` quando a do Ubuntu era mais antiga que o cliente; ela foi simplificada para valer em todos os casos.
+
+**Compatibilidade.** O PGDG publica uma única `libpq5`, da versão estável mais recente do PostgreSQL (hoje a 19), qualquer que seja o cliente. O soname continua `libpq.so.5`. O FAQ do PGDG diz que "libpq5 is compatible with older versions, so there is usually little reason to use a specific version" e que "psql requires at least the version corresponding to its own version, most other software does not really care" ([Apt/FAQ](https://wiki.postgresql.org/wiki/Apt/FAQ), item "I want libpq5 for version X, but there is only version Y in the repository"). A documentação oficial da `libpq` não traz um texto sobre a estabilidade da ABI. Nas imagens, foi conferido:
+- o `libgdal34t64` do Ubuntu declara `Depends: libpq5`, sem versão; o único pacote com versão mínima é o `postgresql-client-NN`;
+- o `psycopg2` do venv carrega `/lib/<arch>/libpq.so.5` (`libpq.so.5.19`) e reporta a `libpq` 19.0;
+- o driver PostgreSQL do OGR carrega, e o `ogr2ogr` não tem bibliotecas faltando.
+
+Isso cobre carregamento e ligação, não conexão a um banco.
+
+**Teste com o cliente 17 (24.04, arm64).** `release` e `devel` construídas com `libpq5` e `libpq-dev` `19.0-2.pgdg24.04+1` e `pg_dump` 17.12; o smoke test passou nas duas (19/19).
+
+**Novo build publicado:** _em andamento; resultados a acrescentar._
+
 ## 9. Binários setuid e setgid
 
 As `release` têm 13 (24.04) e 12 (26.04) binários com setuid ou setgid:
@@ -411,7 +437,7 @@ Problemas das imagens base publicadas a partir de `docker/base/ubuntu/24/Dockerf
    - **Unificado:** esses pacotes vêm compilados no venv, nas versões dos pins do GeoNode, a partir do `requirements.txt` de cada versão. O build do GeoNode não precisa de compilador.
 7. **Cliente PostgreSQL fixo, e de outra versão do Ubuntu na 26.04.**
    - **Oficiais:** as duas fixam o `postgresql-client-15` no pin do PGDG. A ferramenta de backup e restauração do GeoNode (`geonode.br`) exige o mesmo major do banco, então um banco 16, 17 ou 18 obriga a editar o Dockerfile. Na 26.04, o repositório é o `noble-pgdg`, do 24.04, o que mistura pacotes de duas versões do Ubuntu.
-   - **Unificado:** o cliente vem do build arg obrigatório `POSTGRESQL_CLIENT_VERSION` (padrão 18), do PGDG da própria versão (`${VERSION_CODENAME}-pgdg`) com prioridade 100. O major vai para a tag (`-pg<cliente>`), e o smoke test confere o `pg_dump`.
+   - **Unificado:** o cliente vem do build arg obrigatório `POSTGRESQL_CLIENT_VERSION` (padrão 18), do PGDG da própria versão (`${VERSION_CODENAME}-pgdg`) com prioridade 100, menos a `libpq5` e a `libpq-dev`, que vêm do PGDG com prioridade 600 para atender clientes mais novos que a `libpq` do Ubuntu (seção 8.3). O major vai para a tag (`-pg<cliente>`), e o smoke test confere o `pg_dump`.
 8. **Chave do PGDG pelo `apt-key` (24.04).**
    - **Oficial:** o `apt-key add` está obsoleto e torna a chave confiável para todos os repositórios.
    - **Unificado:** usa `signed-by`, e a chave só vale para o PGDG.
@@ -443,7 +469,7 @@ Problemas das imagens base publicadas a partir de `docker/base/ubuntu/24/Dockerf
 | Bindings do GDAL | sem `gdal_array` | com `gdal_array` |
 | Bindings Python do sistema | duplicam o venv (e, na 26.04, um segundo numpy) | só o venv |
 | Pacotes compilados para o GeoNode | o build do GeoNode compila de novo (`psycopg2`, `pylibmc`, numpy, uWSGI na versão do pin) | já compilados, nas versões dos pins |
-| Cliente PostgreSQL | 15 fixo; na 26.04, do PGDG do 24.04 | escolhido no build, do PGDG da própria versão, com prioridade 100 |
+| Cliente PostgreSQL | 15 fixo; na 26.04, do PGDG do 24.04 | escolhido no build, do PGDG da própria versão, com prioridade 100 (a `libpq` sempre do PGDG) |
 | Dockerfiles | um por versão | um único, com um diretório por versão só com o `requirements.txt` |
 | Verificação | nenhuma | smoke test no build e na imagem |
 | Imagem para compilar | — | `devel` |
