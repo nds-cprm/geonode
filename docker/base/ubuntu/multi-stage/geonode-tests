@@ -109,6 +109,20 @@ dc() {
     (cd "$state/src" && "${compose[@]}" -p "$project" --env-file "$state/env" "${args[@]}" -f "$state/override.yml" "$@")
 }
 
+# Removes the work copy of the source. With rootful Docker the containers write files as root (e.g.
+# __pycache__) into the bind-mounted source, and the host user cannot delete them: those are deleted from
+# a container, with the GeoNode image of the last run (recorded outside $state) or, failing that, the base.
+remove_state() {
+    [ -e "$state" ] || return 0
+    rm -rf "$state" 2>/dev/null && return 0
+    local img="$base_image" last
+    last="$(cat "$state.image" 2>/dev/null || true)"
+    if [ -n "$last" ] && "$engine" image inspect "$last" >/dev/null 2>&1; then img="$last"; fi
+    echo ">> Removing files left by the containers in $state (with $img)" >&2
+    "$engine" run --rm -v "$state:/s" --entrypoint find "$img" /s -mindepth 1 -delete
+    rm -rf "$state"
+}
+
 if $down_only; then
     if [ -f "$state/plan.json" ]; then
         mapfile -t compose_files < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["compose_files"]))' "$state/plan.json")
@@ -116,7 +130,7 @@ if $down_only; then
         export COMPOSE_ENV_FILES
         dc down -v --remove-orphans || true
     fi
-    rm -rf "$state"; echo "Test stack removed" >&2; exit 0
+    remove_state; echo "Test stack removed" >&2; exit 0
 fi
 
 # --- Source of the ref --------------------------------------------------------------------------------
@@ -125,7 +139,7 @@ slug() { echo "$1" | tr -c 'A-Za-z0-9._-' '-' | sed -e 's/-*$//' -e 's/^-*//' | 
 image="docker.io/geonode-base-tests/geonode:$(slug "$ref")-$rev-$(slug "${base_image##*/}")"
 log_dir="$work/logs/$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$log_dir"
-rm -rf "$state"; mkdir -p "$state/src"
+remove_state; mkdir -p "$state/src"
 git -C "$repo" archive "$ref" | tar -x -C "$state/src"
 echo ">> GeoNode $ref ($rev) on $base_image | platform $platform | engine $engine" >&2
 echo ">> Logs in $log_dir" >&2
@@ -139,6 +153,7 @@ if $build || ! "$engine" image inspect "$image" >/dev/null 2>&1; then
     "$engine" build --platform "$platform" -f "$state/src/Dockerfile.base-tests" -t "$image" "$state/src" > "$log_dir/build.log" 2>&1 \
         || { echo "Build failed; end of $log_dir/build.log:" >&2; tail -n 30 "$log_dir/build.log" >&2; exit 1; }
 fi
+echo "$image" > "$state.image"   # used by remove_state in the next run or in --down
 "$engine" run --rm --platform "$platform" --entrypoint bash "$image" -c \
     'python -c "import geonode, osgeo.gdal as g, django; print(\"GeoNode\", geonode.get_version(), \"| GDAL\", g.__version__, \"| Django\", django.__version__)"; pip check >/dev/null && echo "pip check: clean" || pip check' \
     | tee "$log_dir/image.txt" >&2
