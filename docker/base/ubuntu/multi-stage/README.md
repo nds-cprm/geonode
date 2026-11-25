@@ -34,19 +34,31 @@ Vulnerabilities come from Trivy 0.76.2, with each CVE counted once per image at 
 The `devel` images are `release` plus the compilers and `-dev` packages of the `build` stage. Their extra
 vulnerabilities come from those packages (mostly `linux-libc-dev`), so production should use `release`.
 
-**Test suite.** A GeoNode image built on top of the linux/arm64 `release` images of this directory, from
-the root `Dockerfile` with only its `FROM` changed, ran the GeoNode CI test groups on 22/11/2026 (see [RELATORIO_TESTES_GEONODE.md](RELATORIO_TESTES_GEONODE.md),
-in Portuguese):
+**Test suite.** A GeoNode image built on top of the `release` images of this directory, from the root
+`Dockerfile` with only its `FROM` changed, ran the GeoNode CI test groups with `geonode-tests`: on
+linux/arm64 on 22/11/2026 (Podman on a Mac, CI services emulated) and on linux/amd64 on 24/11/2026
+(Docker on Linux, all native, with the published images). See [RELATORIO_TESTES_GEONODE.md](RELATORIO_TESTES_GEONODE.md),
+in Portuguese.
 
-| Base | GeoNode | Tests | Result |
-|---|---|---|---|
-| `ubuntu-24.04-pg15` | 5.0.x | 1,527 | all 7 groups pass |
-| `ubuntu-26.04-pg18` | master | 2,046 | 1 error, caused by the test environment (`test_map_default_thumb`, see "Known points") |
+| Base | Arch | GeoNode | Tests | Result | Time (groups only) |
+|---|---|---|---|---|---|
+| `ubuntu-24.04-pg15` | arm64 | 5.0.x | 1,527 | all 7 groups pass | 2 h 43 min |
+| `ubuntu-24.04-pg15` | amd64 | 5.0.x | 1,527 | all 7 groups pass | 1 h 17 min |
+| `ubuntu-26.04-pg18` | arm64 | master | 2,046 | 1 error, caused by the test environment (`test_map_default_thumb`, see "Known points") | 2 h 45 min |
+| `ubuntu-26.04-pg18` | amd64 | master | 2,046 | all 7 groups pass | 55 min |
 
-On 26.04 the `security` group passed on the second attempt: on the first one the stack did not start,
-because Django connected while the emulated `geonode/postgis` container was restarting after initializing
-the database. The results match the earlier runs, made with per-release Dockerfiles that still installed
-the system Python GDAL bindings, so removing them changed no test result.
+Each run skipped the same 2 tests, which upstream marks as skipped.
+
+**Two arm64 incidents did not happen on amd64:**
+- **Boot race in `security`.** On arm64 (26.04) the group passed only on the second attempt. On the first
+  one the stack did not start: Django connected while the emulated `geonode/postgis` container was
+  restarting after initializing the database. On amd64, with native services, every stack started on
+  the first attempt.
+- **`test_map_default_thumb`.** It passed on amd64 only because Wikimedia refused the tiles in a
+  different way, so no thumbnail was generated (see "Known points").
+
+**System GDAL bindings.** The arm64 results match the earlier runs, made with per-release Dockerfiles
+that still installed the system Python GDAL bindings, so removing them changed no test result.
 
 **Unified build.** Images built from this directory for linux/amd64 and linux/arm64, both targets, both
 releases, on 22/11/2026 (Podman 6.1.4 on an arm64 Mac, amd64 under QEMU). All four tags were built
@@ -389,17 +401,26 @@ group passes.
 
 Notes from running it:
 
-- **Duration.** Each group starts a fresh stack (about 3 minutes with emulated services) and loads the
-  gisdata sample layers (about 10 minutes) before its tests, as the CI's `test.sh` does. A full run took
-  about 2 h 45 min per GeoNode line on the machine described in the report.
+- **Duration.** Before its tests, each group starts a fresh stack and loads the gisdata sample layers, as
+  the CI's `test.sh` does. Per GeoNode line, on the machines described in the report:
+  - arm64 Mac with emulated services: about 2 h 45 min, the stack taking about 3 minutes to start;
+  - native amd64 Linux: 55 min to 1 h 17 min, the stack taking 1 to 3 minutes to start, plus 20 to
+    40 minutes for the image build and the service pulls.
 - **Emulation.** The CI service images (`geonode/postgis`, `geonode/geoserver`, `geonode/nginx` and, on
   5.0.x, `geonode/geoserver_data`) only exist for amd64. On arm64 they run under QEMU, which slows the boot
   and can expose races that do not happen natively: on master, a group's stack sometimes fails to
   start because Django connects while the emulated PostgreSQL restarts after initializing the database
-  (`csw` once, `security` once); the group passed on a second run. `--service-image` can swap in native images, at the cost of diverging from the CI.
-- **Environment-dependent test.** On master, `test_map_default_thumb` needs the Wikimedia tiles (which
-  answered 403 in the test environment) and downloads the thumbnail through `SITEURL`, which uWSGI does
-  not serve with `DEBUG=False`. It fails for reasons that do not involve the base image.
+  (`csw` once, `security` once); the group passed on a second run. It never happened on native amd64.
+  `--service-image` can swap in native images, at the cost of diverging from the CI.
+- **Environment-dependent test.** `test_map_default_thumb` needs the Wikimedia tiles and downloads the
+  thumbnail through `SITEURL`, which uWSGI does not serve with `DEBUG=False`. Its result depends on how
+  Wikimedia answers (403, 429…), not on the base image (see "Known points").
+- **Rootful Docker.** The master compose file bind-mounts the source into the `django` container, which
+  runs as root, so the `__pycache__` files written by the tests belong to root on the host.
+  - Problem: a plain `rm -rf` of the work copy, at the start of the next run or on `--down`, fails.
+  - Fix: the script now deletes those files from a container. The container uses the GeoNode image of
+    the last run, recorded in `<work dir>/geonodebasetest.image`, or the base image if that one is gone.
+  - Rootless Podman is not affected, because the container's root is the host user there.
 - **Compose details.** The master compose file reads `env_file: ${COMPOSE_ENV_FILES:-.env}`; the script
   exports `COMPOSE_ENV_FILES` with the CI env file, as the workflow does. Containers are named
   `<service>4<project>`, following the `container_name` of the compose files.
@@ -496,8 +517,6 @@ Most serious first:
 
 - **Drop the setuid/setgid bits** at the end of `runtime` (see "Known points"), leaving no binary with
   those bits. The test suite must be run again before adopting it.
-- **Run the test suite on amd64.** The unified images build and pass the smoke test on amd64 (see "At a
-  glance"), but the GeoNode test suite ran only on arm64.
 - **Ask the GeoNode maintainers to publish arm64 images too.** Today the official images are amd64 only:
   the base (`geonode/geonode-base`), `geonode/geonode`, and the stack and CI services
   (`geonode/postgis`, `geonode/geoserver`, `geonode/geoserver_data`, `geonode/nginx`). On arm64 hosts
@@ -537,6 +556,12 @@ Most serious first:
   image. The test fetches background tiles from `maps.wikimedia.org`, which answered 403 in the test
   environment. It then downloads the generated thumbnail through `SITEURL`
   (`http://localhost:8000/uploaded/...`), which uWSGI does not serve with `DEBUG=False`.
+  On amd64 it passed on both lines, which confirms that it depends on the network:
+  - on master, Wikimedia answered `429 Too Many Requests`;
+  - on 5.0.x, the tiles came back as content that is not an image.
+
+  In both cases no thumbnail was generated, so the test never reached the `/uploaded/` download. Its
+  result follows Wikimedia's answer to the network where the test runs.
 
 ## Adding or updating a release
 

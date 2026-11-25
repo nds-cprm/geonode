@@ -1,6 +1,6 @@
 # Relatório: imagem base multi-stage unificada do GeoNode (Ubuntu 24.04 e 26.04)
 
-Data: 22/11/2026. Artefato: `docker/base/ubuntu/multi-stage/`, com um `Dockerfile` único e os diretórios `24/` e `26/`.
+Data: 22/11/2026, com a suíte em amd64 acrescentada em 24/11/2026. Artefato: `docker/base/ubuntu/multi-stage/`, com um `Dockerfile` único e os diretórios `24/` e `26/`.
 
 Este relatório consolida os testes das duas imagens base multi-stage:
 - a de Ubuntu 24.04, para o GeoNode 5.0.x;
@@ -10,14 +10,18 @@ Ele também traz os resultados do build da versão unificada.
 
 ## 1. Resumo
 
-**Suíte de testes do GeoNode** (grupos e comandos da CI do GeoNode, sobre uma imagem do GeoNode construída em cima das imagens `release` arm64 do build unificado, em 22/11/2026):
+**Suíte de testes do GeoNode** (grupos e comandos da CI do GeoNode, sobre uma imagem do GeoNode construída em cima das imagens `release` do build unificado; em arm64 em 22/11/2026 e em amd64 em 24/11/2026, com as imagens publicadas):
 
-| Base | GeoNode | Testes | Resultado | Duração |
-|---|---|---|---|---|
-| `ubuntu-24.04-pg15` | 5.0.x (`b7e73644a`) | 1.527 | ✅ os 7 grupos passaram, sem falhas (2 ignorados) | 2 h 43 min |
-| `ubuntu-26.04-pg18` | master (`d74ea0392`) | 2.046 | 1 erro de ambiente (`test_map_default_thumb`), 2 ignorados; os outros 6 grupos passaram integralmente | 2 h 45 min |
+| Base | Arquitetura | GeoNode | Testes | Resultado | Duração |
+|---|---|---|---|---|---|
+| `ubuntu-24.04-pg15` | arm64 | 5.0.x (`b7e73644a`) | 1.527 | ✅ os 7 grupos passaram, sem falhas (2 ignorados) | 2 h 43 min |
+| `ubuntu-24.04-pg15` | amd64 | 5.0.x (`b7e73644a`) | 1.527 | ✅ os 7 grupos passaram, sem falhas (2 ignorados) | 1 h 17 min |
+| `ubuntu-26.04-pg18` | arm64 | master (`d74ea0392`) | 2.046 | 1 erro de ambiente (`test_map_default_thumb`), 2 ignorados; os outros 6 grupos passaram integralmente | 2 h 45 min |
+| `ubuntu-26.04-pg18` | amd64 | master (`ccf941344`) | 2.046 | ✅ os 7 grupos passaram, sem falhas (2 ignorados) | 55 min |
 
-Os resultados são os mesmos das rodadas anteriores, feitas com os Dockerfiles por versão antes da retirada dos bindings Python do GDAL do sistema (seção 7): a retirada não afetou nenhum teste.
+A duração é a soma dos grupos, sem o build da imagem do GeoNode. Em amd64, todos os serviços rodaram nativos, e nenhum grupo precisou de segunda tentativa. O `test_map_default_thumb` passou em amd64 só porque a Wikimedia recusou os tiles com outro código, e a miniatura nem chegou a ser gerada (seção 4.3): continua sendo um teste que depende do ambiente, não da base.
+
+Em arm64, os resultados são os mesmos das rodadas anteriores, feitas com os Dockerfiles por versão antes da retirada dos bindings Python do GDAL do sistema (seção 7): a retirada não afetou nenhum teste.
 
 **Imagens `release` (arm64), comparadas com as bases oficiais (amd64):**
 
@@ -31,16 +35,19 @@ Os resultados são os mesmos das rodadas anteriores, feitas com os Dockerfiles p
 
 **Imagens publicadas** em `docker.io/ndscprm/geonode-base`, em 23/11/2026, com amd64 e arm64: `ubuntu-24.04-pg15`, `ubuntu-24.04-pg15-devel`, `ubuntu-26.04-pg18` e `ubuntu-26.04-pg18-devel`. Elas já trazem a `libpq5` do PGDG (seção 8.3), com os mesmos tamanhos e CVEs das imagens anteriores.
 
-**Conclusão.** As bases multi-stage atendem o GeoNode 5.0.x (24.04) e o GeoNode master (26.04). A imagem final não tem compiladores, ocupa menos da metade das oficiais e não tem CVE crítico nem alto nos pacotes do SO. O Dockerfile unificado produz as duas versões com os mesmos passos dos Dockerfiles por versão, e cada imagem se verifica com um smoke test no fim do build.
+**Conclusão.** As bases multi-stage atendem o GeoNode 5.0.x (24.04) e o GeoNode master (26.04), em amd64 e em arm64. A imagem final não tem compiladores, ocupa menos da metade das oficiais e não tem CVE crítico nem alto nos pacotes do SO. O Dockerfile unificado produz as duas versões com os mesmos passos dos Dockerfiles por versão, e cada imagem se verifica com um smoke test no fim do build.
 
 **Problemas das bases oficiais corrigidos no build unificado** (seção 10): compiladores e ferramentas de empacotamento Debian na imagem de produção, falta de `apt-get upgrade` (22 e 27 pacotes com correção pendente), pacotes recomendados instalados, bindings do GDAL sem `gdal_array`, pacotes Python do sistema duplicando o venv, pacotes do GeoNode recompilados no build dele, cliente PostgreSQL 15 fixo (na 26.04, do PGDG do 24.04), `apt-key`, limpeza de camadas sem efeito, só amd64, nenhuma verificação da imagem e dois Dockerfiles divergentes.
 
-**Pendências:**
-- rodar a suíte em amd64; até agora, só o smoke test rodou nessa arquitetura.
+**Pendências:** nenhuma. A suíte em amd64, única pendência anterior, rodou em 24/11/2026 e passou nas duas linhas do GeoNode.
 
 ## 2. Ambiente de execução
 
-Todos os builds e testes deste relatório rodaram com **Podman no macOS, em arm64**, numa única máquina. Não houve Docker nem CI do GitHub.
+Os builds e os testes rodaram em duas máquinas, sem CI do GitHub:
+- **Podman no macOS, em arm64:** todos os builds, o smoke test, as varreduras de vulnerabilidades e a suíte em arm64;
+- **Docker no Linux, em amd64:** só a suíte em amd64, sobre as imagens publicadas no Docker Hub.
+
+**Mac (arm64):**
 
 | Item | Valor |
 |---|---|
@@ -55,6 +62,17 @@ Todos os builds e testes deste relatório rodaram com **Podman no macOS, em arm6
 **Consequências da emulação:**
 - os tempos dos grupos e a corrida de boot vista no `security` (seção 4.3; no `csw`, nas rodadas anteriores) refletem a emulação dos serviços amd64, e não valem como referência de desempenho;
 - os builds amd64 também são emulados, bem mais lentos que os nativos.
+
+**Linux (amd64), só para a suíte:**
+
+| Item | Valor |
+|---|---|
+| Hospedeiro | notebook com Intel Core i7-10750H (x86_64), 12 threads, 32 GB de RAM, Ubuntu 26.04.1 LTS (kernel 7.0.0-44) |
+| Motor de containers | Docker 29.9.3 (rootful), Docker Compose 5.7.0 |
+| Imagens base | `docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15` e `ubuntu-26.04-pg18`, as manifest lists publicadas em 23/11/2026 (seção 8.3), puxadas na variante amd64 |
+| Imagem do GeoNode e serviços da CI | todos nativos, sem emulação |
+
+A máquina também rodava outra stack do GeoNode durante os testes, sem conflito: o `geonode-tests` usa um projeto compose próprio e não publica portas.
 
 ## 3. O artefato
 
@@ -107,9 +125,11 @@ O script `docker/base/ubuntu/multi-stage/geonode-tests` (seção 4.4) segue o `.
 - sem envio ao Codecov;
 - imagens que só existem para outra arquitetura rodam emuladas.
 
-**Serviços de apoio:** as imagens da CI (`geonode/postgis:15-3.5-latest`, `geonode/geoserver`, `geonode/nginx` e, na 5.0.x, `geonode/geoserver_data`), todas só em amd64, rodaram emuladas.
+**Serviços de apoio:** as imagens da CI (`geonode/postgis:15-3.5-latest`, `geonode/geoserver`, `geonode/nginx` e, na 5.0.x, `geonode/geoserver_data`), todas só em amd64. No Mac, rodaram emuladas; no Linux amd64, nativas.
 
 ### 4.2 Resultados
+
+#### arm64 (Mac, Podman, serviços emulados), 22/11/2026
 
 Imagens testadas: `docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15` e `ubuntu-26.04-pg18`, construídas do Dockerfile unificado, em linux/arm64. Logs em `~/.cache/geonode-base-tests/logs/20261122-130311` (5.0.x), `20261122-161925` (master) e `20261122-190007` (segunda tentativa do `security` da master). O `pip check` saiu limpo nas duas imagens do GeoNode.
 
@@ -141,6 +161,48 @@ Imagens testadas: `docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15` e `ubuntu-2
 
 O tempo de cada grupo inclui a subida de uma stack nova (cerca de 3 minutos) e a carga das camadas do gisdata (cerca de 10 minutos).
 
+#### amd64 (Linux, Docker, serviços nativos), 24/11/2026
+
+Imagens testadas: as publicadas `docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15` e `ubuntu-26.04-pg18`, em linux/amd64. Logs em `~/.cache/geonode-base-tests/logs/20261124-160821` (master) e `20261124-172717` (5.0.x). O `pip check` saiu limpo nas duas imagens do GeoNode. Os testes ignorados são os mesmos do arm64: `test_get_arcgis_alternative_structure` (`main`, "test to be revisioned") e `test_import_geopackage_with_no_crs_table` (`upload`, "unknown fail on circleci").
+
+**Ubuntu 24.04, GeoNode 5.0.x** (`b7e73644a`, `5.0.0.dev0`, GDAL 3.8.4, Django 5.2.16):
+
+| Grupo | Testes | Resultado | Tempo |
+|---|---|---|---|
+| smoke | 48 | ✅ OK | 6 min |
+| main | 770 | ✅ OK (1 ignorado) | 22 min |
+| security | 81 | ✅ OK | 8 min |
+| gis_backend | 37 | ✅ OK | 7 min |
+| rest_apis | 233 | ✅ OK | 14 min |
+| csw | 12 | ✅ OK | 6 min |
+| upload | 346 | ✅ OK (1 ignorado) | 14 min |
+| **Total** | **1.527** | **✅ sem falhas** | 1 h 17 min |
+
+**Ubuntu 26.04, GeoNode master** (`ccf941344`, `5.2.0.dev0`, GDAL 3.12.2, Django 5.2.19):
+
+| Grupo | Testes | Resultado | Tempo |
+|---|---|---|---|
+| smoke | 60 | ✅ OK | 5 min |
+| main | 1.075 | ✅ OK (1 ignorado) | 15 min |
+| security | 113 | ✅ OK | 6 min |
+| gis_backend | 47 | ✅ OK | 4 min |
+| rest_apis | 265 | ✅ OK | 9 min |
+| csw | 12 | ✅ OK | 5 min |
+| upload | 474 | ✅ OK (1 ignorado) | 11 min |
+| **Total** | **2.046** | **✅ sem falhas** | 55 min |
+
+**A master testada é um commit à frente da rodada em arm64:** `ccf941344` acrescenta o reCAPTCHA no login do admin ao `d74ea0392`. O número de testes é o mesmo.
+
+**Tempos.** Cada stack subiu em 1 a 2 minutos na master e em cerca de 3 minutos na 5.0.x. Fora os grupos, cada rodada gastou:
+
+| Etapa | master | 5.0.x |
+|---|---|---|
+| Build da imagem do GeoNode | 10 min | 29 min |
+| Pull das imagens dos serviços | 10 min | 9 min |
+| Rodada inteira | 1 h 18 min | 1 h 59 min |
+
+A 5.0.x ficou mais lenta que a master no build e em todos os grupos, mesmo com menos testes. Os números vêm de uma única rodada numa máquina que também rodava outra stack, então não dá para atribuir a diferença a uma causa.
+
 ### 4.3 Ocorrências
 
 - **`test_map_default_thumb` (26.04, grupo `main`): erro de ambiente.** O teste gera a miniatura de um mapa com fundo da Wikimedia e a baixa por `http://localhost:8000/uploaded/...`. Dois fatores o derrubam, e nenhum depende da imagem base:
@@ -148,7 +210,18 @@ O tempo de cada grupo inclui a subida de uma stack nova (cerca de 3 minutos) e a
   - com `DEBUG=False`, o uWSGI não serve `/uploaded/`, e o teste recebe uma página 404 no lugar da imagem.
 
   Na 5.0.x o mesmo teste passa, porque lá a miniatura nem chega a ser gerada sem o fundo.
+
+  **Em amd64 (24/11), o teste passou nas duas linhas, e isso confirma que ele depende da rede.**
+  - **Master:** a Wikimedia respondeu `429 Too Many Requests` ("Your bot is making too many requests"). A geração da miniatura falhou antes do download por `/uploaded/`, e o teste passou sem chegar ao ponto que falhou em arm64.
+  - **5.0.x:** os tiles vieram com conteúdo que não é imagem (`cannot identify image file`), com o mesmo efeito.
+
+  O resultado varia com a resposta da Wikimedia à rede de onde o teste roda, e não com a imagem base nem com a arquitetura.
 - **`security` (26.04): a stack não subiu na primeira tentativa.** O PostgreSQL da imagem `geonode/postgis` (emulada) inicializa o banco, desliga e sobe de novo. O healthcheck deu o serviço como pronto antes dessa reinicialização, e o django tentou conectar no intervalo: `connection to server at "db" ... failed: Connection refused`, e o container saiu. Nenhum teste chegou a rodar. Na segunda tentativa, os 113 testes passaram. Nas rodadas com os Dockerfiles por versão, a mesma corrida atingiu o grupo `csw`. Não depende da imagem base.
+  - **Em amd64, com os serviços nativos, a corrida não apareceu:** as 14 stacks (7 grupos × 2 linhas) subiram de primeira. Isso reforça que ela vem da emulação.
+- **5.0.x em amd64: a primeira tentativa parou antes do primeiro grupo, por um problema do script.**
+  - **O que houve:** o compose da master monta o código no container `django`, que roda como root. No Docker rootful, os `__pycache__` gerados pelos testes ficam com dono root no diretório de trabalho do host. A rodada seguinte começa com `rm -rf` desse diretório, e o usuário não consegue apagar esses arquivos.
+  - **Por que não apareceu antes:** no Podman rootless do Mac, o root do container é o próprio usuário no host.
+  - **Correção:** o script foi corrigido (seção 4.4), e a segunda tentativa rodou normalmente. Não envolve a imagem base.
 
 ### 4.4 O script `geonode-tests`
 
@@ -189,10 +262,21 @@ A saída é 0 só se todos os grupos passarem.
 - **Registro do comando no log.** Um `echo` com aspas duplas expandia o `$TESTS` antes da hora e, com `set -u`, abortava os grupos `main`, `security` e `gis_backend` na primeira rodada da 5.0.x. O comando agora é gravado por um here-doc literal.
 - **`COMPOSE_ENV_FILES`.** O compose da master usa `env_file: ${COMPOSE_ENV_FILES:-.env}`; o script passou a exportar a variável com o arquivo de ambiente da CI, como o workflow faz.
 - **Logs na falha de subida.** Os logs dos serviços passaram a ser gravados também quando a stack não sobe.
+- **Arquivos de root no diretório de trabalho (Docker rootful, 24/11).**
+  - **Problema:** o `rm -rf` do início da rodada e do `--down` falhava com "Permissão negada" nos `__pycache__` criados pelo container `django` da master (seção 4.3).
+  - **Correção:** a função `remove_state` tenta o `rm -rf` e, se ele falhar, apaga o conteúdo de dentro de um container (`find /s -mindepth 1 -delete`). O container usa a imagem do GeoNode da última rodada, cujo nome fica registrado em `~/.cache/geonode-base-tests/geonodebasetest.image`, fora do diretório apagado; se essa imagem não existir mais, usa a base.
+  - **Validação de ponta a ponta (24/11, master, grupo `smoke`, `--no-build`):**
+    - **Rodada 1:** passou e deixou 1.076 arquivos de root no diretório de trabalho; o nome da imagem ficou registrado.
+    - **Rodada 2:** a `remove_state` apagou esses arquivos com a imagem do GeoNode registrada, e o `smoke` passou de novo.
+    - **`--down`:** apagou os 1.076 arquivos deixados pela rodada 2 e removeu o diretório; não sobraram containers nem volumes.
+
+    Logs em `~/.cache/geonode-base-tests/logs/20261124-195421` e `20261124-195959`.
 
 **Pontos de atenção:**
 - **O `--list` constrói a imagem do GeoNode,** ou a reaproveita com `--no-build`, porque o PyYAML vem dela. Não é uma consulta instantânea, e disputa a máquina com outros builds.
-- **Duração.** Cerca de 2 h 45 min por linha do GeoNode neste ambiente. Cada grupo sobe uma stack nova (cerca de 3 min com os serviços emulados) e carrega o gisdata (cerca de 10 min).
+- **Duração.** Cada grupo sobe uma stack nova e carrega o gisdata. Por linha do GeoNode:
+  - **Mac arm64, com os serviços emulados:** cerca de 2 h 45 min, com a stack subindo em cerca de 3 min;
+  - **Linux amd64, nativo:** de 55 min a 1 h 17 min, mais o build e o pull, que somaram de 20 a 40 min.
 - **Emulação.** Em arm64, os serviços da CI rodam emulados. Isso alonga o boot e pode expor corridas que não acontecem no nativo, como a do `security` (seção 4.3). O `--service-image` permite trocar por imagens nativas, ao custo de fugir das imagens exatas da CI.
 - **Requisitos:** bash 4.3 ou mais novo (no macOS, o do Homebrew), git, e Docker ou Podman com compose.
 
@@ -497,7 +581,6 @@ Problemas das imagens base publicadas a partir de `docker/base/ubuntu/24/Dockerf
 
 ## 12. Recomendações
 
-- **Rodar a suíte do GeoNode também em amd64** antes de publicar. Em arm64 ela já passou sobre as imagens unificadas (seção 4).
 - **Versão do cliente PostgreSQL na tag:** `ubuntu-<tag>-pg<cliente>` para a `release` e `-devel` para a `devel`. A ferramenta de backup e restauração do GeoNode (`geonode.br`) exige o mesmo major do banco.
 - **Aos mantenedores do GeoNode: publicar imagens também em arm64.** Hoje as imagens oficiais só existem em amd64: a base, a do GeoNode e as dos serviços (`geonode/postgis`, `geonode/geoserver`, `geonode/geoserver_data`, `geonode/nginx`). Em máquinas arm64 (Apple Silicon, AWS Graviton, Ampere), elas só rodam emuladas, mais lentas e sujeitas a falhas como a corrida de boot do `security`. Este Dockerfile constrói as duas arquiteturas sem mudança, e `docker buildx build --platform linux/amd64,linux/arm64` nos workflows do GitHub Actions faria as mesmas tags servirem às duas.
 - **Build multi-arquitetura em máquinas nativas,** sem emulação. Os builds amd64 emulados levaram de 2,5 a 5 vezes mais que os arm64 nativos (seção 8.1), e a compilação do numpy da 26.04 ficou 4,5 vezes mais lenta em amd64.
@@ -532,6 +615,7 @@ podman run --rm --platform linux/arm64 docker.io/ndscprm/geonode-base:ubuntu-26.
 # Suíte do GeoNode sobre a base (todos os grupos; logs em ~/.cache/geonode-base-tests/logs/)
 ./docker/base/ubuntu/multi-stage/geonode-tests --ref master --base docker.io/ndscprm/geonode-base:ubuntu-26.04-pg18
 ./docker/base/ubuntu/multi-stage/geonode-tests --ref 5.0.x --base docker.io/ndscprm/geonode-base:ubuntu-24.04-pg15
+# (em amd64, a 5.0.x foi testada com --ref upstream/5.0.x, porque o branch 5.0.x local estava desatualizado)
 ```
 
 O `geonode-tests` precisa do bash 4.3 ou mais novo (no macOS, o do Homebrew), do git e do Docker ou Podman com compose.
